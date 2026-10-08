@@ -8,7 +8,9 @@
 pub mod adapters;
 pub mod config;
 pub mod error;
+pub mod handoff;
 pub mod herdr;
 pub mod model;
+pub mod prompt;
 pub mod session;
 pub mod transcript;

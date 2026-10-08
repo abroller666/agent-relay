@@ -1,0 +1,162 @@
+//! Reading the source's answer, checking both panes again right before
+//! sending, and sending exactly once.
+//!
+//! Herdr has no compare-and-send, so a pane can still change between the
+//! last check and the send; the checks only narrow that window. A send
+//! whose result is unknown is reported as such and never retried.
+
+use crate::adapters::AdapterRegistry;
+use crate::config::Config;
+use crate::error::HandoffError;
+use crate::herdr::{AgentSnapshot, HerdrApi};
+use crate::model::{AnswerSnapshot, PaneBinding};
+use crate::prompt::build_prompt;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendOutcome {
+    /// Herdr accepted the prompt and submitted it. Says nothing about how
+    /// the target handles it.
+    Accepted,
+    /// The prompt may have been submitted; check the target pane.
+    DeliveryUnknown,
+}
+
+pub struct HandoffService<'a> {
+    herdr: &'a dyn HerdrApi,
+    adapters: &'a dyn AdapterRegistry,
+    config: &'a Config,
+}
+
+impl<'a> HandoffService<'a> {
+    pub fn new(
+        herdr: &'a dyn HerdrApi,
+        adapters: &'a dyn AdapterRegistry,
+        config: &'a Config,
+    ) -> Self {
+        Self {
+            herdr,
+            adapters,
+            config,
+        }
+    }
+
+    /// The last finished answer of `source`, which must still be the same
+    /// idle agent session.
+    pub fn prepare(&self, source: PaneBinding) -> Result<AnswerSnapshot, HandoffError> {
+        let before = self.current_source(&source)?;
+        let adapter = self
+            .adapters
+            .adapter(source.agent)
+            .ok_or_else(|| HandoffError::UnsupportedAgent(source.agent.display_name().into()))?;
+        let session = adapter.resolve(&source, self.config)?;
+        let answer = adapter.latest_completed(&session, &self.config.limits)?;
+        // The agent must not have started another turn while it was read.
+        let after = self.current_source(&source)?;
+        if after.state_change_seq != before.state_change_seq {
+            return Err(HandoffError::SourceChanged(
+                "読み取り中に送信元の状態が変わりました".into(),
+            ));
+        }
+        Ok(answer)
+    }
+
+    /// Checks both panes and the answer again, then sends the prompt once.
+    pub fn send(
+        &self,
+        answer: &AnswerSnapshot,
+        target: &PaneBinding,
+        instruction: &str,
+    ) -> Result<SendOutcome, HandoffError> {
+        let source = &answer.session.binding;
+        if target.pane_id == source.pane_id {
+            return Err(HandoffError::TargetChanged(
+                "送信元と同じpaneには送れません".into(),
+            ));
+        }
+        let server = self.herdr.server_key();
+        if source.server_key != server || target.server_key != server {
+            return Err(HandoffError::TargetChanged(
+                "別のHerdrサーバーのpaneです".into(),
+            ));
+        }
+        self.current_source(source)?;
+        let adapter = self
+            .adapters
+            .adapter(source.agent)
+            .ok_or_else(|| HandoffError::UnsupportedAgent(source.agent.display_name().into()))?;
+        let fresh = adapter.latest_completed(&answer.session, &self.config.limits)?;
+        if fresh.answer_id != answer.answer_id
+            || fresh.source_fingerprint != answer.source_fingerprint
+        {
+            return Err(HandoffError::SourceChanged(
+                "送信元の回答が新しくなりました。内容を確認してから送ってください".into(),
+            ));
+        }
+        let now = match self.herdr.agent(&target.pane_id) {
+            Ok(now) => now,
+            Err(HandoffError::UnsupportedAgent(_) | HandoffError::SessionUnavailable(_)) => {
+                return Err(HandoffError::TargetChanged(format!(
+                    "{}のエージェントが入れ替わりました",
+                    target.pane_id
+                )));
+            }
+            Err(e) => return Err(e),
+        };
+        if !now.binding.same_occupant(target) {
+            return Err(HandoffError::TargetChanged(format!(
+                "{}のエージェントが入れ替わりました",
+                target.pane_id
+            )));
+        }
+        require_ready(&now)?;
+
+        let prompt = build_prompt(instruction, answer)?;
+        if prompt.len() > self.config.max_payload_bytes {
+            return Err(HandoffError::PayloadTooLarge(format!(
+                "{}バイト（上限{}バイト）",
+                prompt.len(),
+                self.config.max_payload_bytes
+            )));
+        }
+        match self.herdr.prompt(&target.pane_id, &prompt) {
+            Ok(()) => Ok(SendOutcome::Accepted),
+            Err(HandoffError::DeliveryUnknown(_)) => Ok(SendOutcome::DeliveryUnknown),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// `source` as Herdr sees it now, if it is still the same idle session.
+    fn current_source(&self, source: &PaneBinding) -> Result<AgentSnapshot, HandoffError> {
+        let now = match self.herdr.agent(&source.pane_id) {
+            Ok(now) => now,
+            Err(HandoffError::UnsupportedAgent(_) | HandoffError::SessionUnavailable(_)) => {
+                return Err(HandoffError::SourceChanged(
+                    "送信元のエージェントが入れ替わりました".into(),
+                ));
+            }
+            Err(e) => return Err(e),
+        };
+        if !now.binding.same_occupant(source) {
+            return Err(HandoffError::SourceChanged(
+                "送信元のエージェントが入れ替わりました".into(),
+            ));
+        }
+        require_ready(&now)?;
+        Ok(now)
+    }
+}
+
+fn require_ready(agent: &AgentSnapshot) -> Result<(), HandoffError> {
+    if agent.is_ready() {
+        return Ok(());
+    }
+    let state = if agent.launch_pending {
+        "起動中"
+    } else {
+        agent.agent_status.as_str()
+    };
+    Err(HandoffError::AgentNotReady(format!(
+        "{}は{state}です",
+        agent.binding.pane_id
+    )))
+}

@@ -32,6 +32,8 @@ pub enum HandoffError {
     AgentNotReady(String),
     /// The prompt is larger than the configured or protocol limit.
     PayloadTooLarge(String),
+    /// The instruction cannot be sent as typed.
+    InvalidInstruction(String),
     /// The prompt may or may not have reached the target.
     DeliveryUnknown(String),
     /// Herdr could not be reached or refused the request before any input
@@ -66,6 +68,7 @@ impl fmt::Display for HandoffError {
             Self::TargetChanged(d) => ("送信先が変わりました", d),
             Self::AgentNotReady(d) => ("エージェントが受付可能な状態ではありません", d),
             Self::PayloadTooLarge(d) => ("送信サイズが上限を超えています", d),
+            Self::InvalidInstruction(d) => ("指示を送れません", d),
             Self::DeliveryUnknown(d) => ("送信結果を確認できません", d),
             Self::Herdr(d) => ("Herdrとの通信に失敗しました", d),
         };

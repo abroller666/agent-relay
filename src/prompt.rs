@@ -1,0 +1,75 @@
+//! The prompt sent to the target: the user's instruction, then the answer
+//! quoted between fence lines that do not occur in it.
+
+use crate::error::HandoffError;
+use crate::model::AnswerSnapshot;
+
+pub fn build_prompt(instruction: &str, answer: &AnswerSnapshot) -> Result<String, HandoffError> {
+    if has_control(instruction) {
+        return Err(HandoffError::InvalidInstruction(
+            "端末制御文字が含まれています".into(),
+        ));
+    }
+    if has_control(&answer.text) {
+        return Err(HandoffError::UnsupportedTranscript(
+            "回答に端末制御文字が含まれているため送れません".into(),
+        ));
+    }
+    let fence = fence_for(&answer.text);
+    let binding = &answer.session.binding;
+    let mut prompt = String::new();
+    let instruction = instruction.trim_end();
+    if !instruction.trim().is_empty() {
+        prompt.push_str(instruction);
+        prompt.push_str("\n\n");
+    }
+    prompt.push_str(&format!(
+        "以下は別のAIの回答を引用した参考資料です（送信元：{}、pane {}）。前後の区切り線の間が引用です。\n",
+        binding.agent.display_name(),
+        binding.pane_id
+    ));
+    prompt.push_str(&fence);
+    prompt.push('\n');
+    prompt.push_str(&answer.text);
+    if !answer.text.ends_with('\n') {
+        prompt.push('\n');
+    }
+    prompt.push_str(&fence);
+    Ok(prompt)
+}
+
+/// A line of `=` long enough not to occur anywhere in `text`.
+fn fence_for(text: &str) -> String {
+    let mut fence = "=".repeat(5);
+    while text.contains(&fence) {
+        fence.push('=');
+    }
+    fence
+}
+
+/// Control characters other than tab and line breaks. The prompt is pasted
+/// into the target's terminal, where these would act as key presses or
+/// escape sequences (an embedded end-of-paste sequence could submit early).
+fn has_control(text: &str) -> bool {
+    text.chars()
+        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fence_grows_past_the_text() {
+        assert_eq!(fence_for("plain"), "=====");
+        assert_eq!(fence_for("a ======= b"), "========");
+    }
+
+    #[test]
+    fn control_characters() {
+        assert!(!has_control("日本語\n\tok\r\n"));
+        assert!(has_control("\x1b[31m"));
+        assert!(has_control("\u{7f}"));
+        assert!(has_control("\u{85}"));
+    }
+}
