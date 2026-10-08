@@ -541,6 +541,7 @@ mod live_targets {
                 pane("w1:pC", "w1:t2", Some("codex")),
                 pane("w1:pA", "w1:t1", Some("claude")),
                 pane("w1:pB", "w1:t1", Some("codex")),
+                pane("w1:pS", "w1:t1", None), // a shell, no agent
             ])
         }
         fn layout(&self, _: &str) -> Result<Layout, HandoffError> {
@@ -564,7 +565,8 @@ mod live_targets {
         };
         let rows = svc.targets(&source()).unwrap();
         let ids: Vec<&str> = rows.iter().map(|r| r.pane_id.as_str()).collect();
-        // The source's tab first, then its workspace, then the others.
+        // The source's tab first, then its workspace, then the others;
+        // panes without an agent are left out.
         assert_eq!(ids, ["w1:pB", "w1:pC", "w2:pD"]);
         assert_eq!(rows[2].space, "review");
         assert!(rows.iter().all(|r| r.binding.is_some()));

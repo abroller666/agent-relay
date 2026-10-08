@@ -12,7 +12,7 @@ Supported agents: Claude Code and Codex, on either side.
 
 1. Focus A and press the key you bound to the plugin.
 2. A popup opens and reads A's last answer from its session transcript.
-3. Pick B from every other pane, in every workspace (A's tab first, then its workspace, then the others; the workspace is shown when the list spans several). Panes that cannot receive (busy, waiting for approval, no registered session…) are listed with the reason and cannot be picked.
+3. Pick B from every other pane running an AI agent, in every workspace (A's tab first, then its workspace, then the others; the workspace is shown when the list spans several). Panes that cannot receive (busy, waiting for approval, no registered session…) are listed with the reason and cannot be picked.
    ↑↓ / `Ctrl+p` `Ctrl+n` / `j` `k` move, `Space` or `1`–`9` pick, `Enter` confirms.
 4. Type the instruction (it may be left empty: then only the label and the answer are sent). `Enter` sends, `Alt+Enter` inserts a line break, `Ctrl+]` picks B again, `Ctrl+r` re-reads the answer, `Esc` / `Ctrl+g` / `Ctrl+q` quit (in the target list too).
    Committing IME input or pasting several lines never sends.

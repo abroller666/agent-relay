@@ -477,7 +477,7 @@ impl<'a> Popup<'a> {
         ));
         let space = rows.saturating_sub(2).max(1);
         if self.rows.is_empty() {
-            lines.push(dim("no other panes in this tab"));
+            lines.push(dim("no other panes run an AI agent"));
         }
         let many_spaces = self.rows.iter().any(|r| r.space != self.rows[0].space);
         let shown = self.picker.window(self.rows.len(), space);
@@ -760,10 +760,11 @@ impl PopupService for LiveService<'_> {
             .find(|p| p.pane_id == source.pane_id)
             .map(|p| p.workspace_id.clone())
             .unwrap_or_default();
-        // Every pane but the source, in every workspace.
+        // Every pane running an agent but the source, in every workspace.
         let mut panes: Vec<(usize, &PaneSummary)> = panes
             .iter()
             .filter(|p| p.pane_id != source.pane_id)
+            .filter(|p| p.agent.as_deref().is_some_and(|a| !a.trim().is_empty()))
             .enumerate()
             .collect();
         let place = |p: &PaneSummary| {
@@ -818,9 +819,7 @@ impl LiveService<'_> {
             binding: None,
             unavailable: None,
         };
-        let reason = if agent.is_empty() {
-            Some("no AI agent".to_string())
-        } else if AgentKind::from_herdr(&agent).is_none() {
+        let reason = if AgentKind::from_herdr(&agent).is_none() {
             Some("unsupported agent".to_string())
         } else {
             match self.herdr.agent(&p.pane_id) {
