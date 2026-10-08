@@ -138,15 +138,17 @@ fn enter_sends_once() {
     let svc = FakeService::new();
     let mut p = editing(&svc);
     p.feed(b"review this");
-    assert_eq!(p.feed(b"\r"), Flow::Continue);
+    // An accepted send closes the popup at once.
+    assert_eq!(p.feed(b"\r"), Flow::Quit);
     assert_eq!(svc.sent(), 1);
     assert_eq!(
         svc.sends.borrow()[0],
         ("w1:pB".to_string(), "review this".to_string())
     );
     assert_eq!(p.screen(), Screen::Sent);
-    // More Enter presses after sending only close the popup.
-    assert_eq!(p.feed(b"\r"), Flow::Quit);
+    // Enter pressed again in the same read is not a second send.
+    let mut p = editing(&svc);
+    assert_eq!(p.feed(b"\r\r"), Flow::Continue); // a line break, not a send
     assert_eq!(svc.sent(), 1);
 }
 
@@ -166,7 +168,8 @@ fn delivery_unknown_is_never_resent() {
     *svc.send_result.borrow_mut() = Ok(SendOutcome::DeliveryUnknown);
     let mut p = editing(&svc);
     p.feed(b"go");
-    p.feed(b"\r");
+    // An unconfirmed send stays on screen for its warning.
+    assert_eq!(p.feed(b"\r"), Flow::Continue);
     assert_eq!(p.screen(), Screen::DeliveryUnknown);
     assert_eq!(p.feed(b"\r"), Flow::Quit);
     assert_eq!(svc.sent(), 1);

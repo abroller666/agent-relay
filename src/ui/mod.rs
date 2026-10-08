@@ -266,7 +266,8 @@ impl<'a> Popup<'a> {
                     }
                 }
                 Screen::Editing => {
-                    if self.edit(key) == Flow::Quit {
+                    // An accepted send closes the popup at once.
+                    if self.edit(key) == Flow::Quit || self.state.screen == Screen::Sent {
                         return Flow::Quit;
                     }
                     // After a send attempt, the rest of this read was typed

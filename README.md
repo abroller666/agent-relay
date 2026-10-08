@@ -19,7 +19,7 @@ Supported agents: Claude Code and Codex, on either side.
 5. Right before sending, both panes are checked again (same agent session, idle or done) and the answer is read again. If A's answer changed, nothing is sent: the new answer is loaded, your instruction is kept, and you decide again.
 6. B receives one prompt, submitted once: your instruction, a short label, and A's answer verbatim between fence lines that do not occur in it.
 
-"Sent" means Herdr accepted the input, not that B finished working on it.
+The popup closes as soon as Herdr accepts the input; that says nothing about B finishing. Only when delivery cannot be confirmed does the popup stay open with a warning.
 
 ## What "the last finished answer" means
 
