@@ -84,7 +84,15 @@ impl<'a> HandoffService<'a> {
             .adapters
             .adapter(source.agent)
             .ok_or_else(|| HandoffError::UnsupportedAgent(source.agent.display_name().into()))?;
-        let fresh = adapter.latest_completed(&answer.session, &self.config.limits)?;
+        // Resolve again: a rewind can move the session's history to another
+        // file, leaving the rewound answer in the old one.
+        let session = adapter.resolve(source, self.config)?;
+        if session.transcript_path != answer.session.transcript_path {
+            return Err(HandoffError::SourceChanged(
+                "送信元の履歴が切り替わりました（rewind・forkなど）".into(),
+            ));
+        }
+        let fresh = adapter.latest_completed(&session, &self.config.limits)?;
         if fresh.answer_id != answer.answer_id
             || fresh.source_fingerprint != answer.source_fingerprint
         {

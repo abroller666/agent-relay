@@ -34,6 +34,7 @@ Nothing is sent, and the reason is shown, when the latest turn is still running,
 - Keep B's input box empty: text left there is joined in front of the prompt. The plugin does not clear it.
 - **Right after a Claude Code rewind (`Esc` `Esc`), until the next prompt, the answer from before the rewind is sent.** A rewind leaves no trace in the transcript. Check the preview.
 - Right after a Codex rewind or fork, there is no answer until the next prompt.
+- After a Claude Code slash command such as `/model`, completion cannot be confirmed until the next prompt.
 - Checks and send are not atomic; a pane can still change right after the last check (Herdr has no conditional send).
 - If the result of a send cannot be confirmed (connection lost, timeout), the popup says so and **does not resend**. Look at B.
 - Up to 256 KiB (instruction plus answer) by default; larger prompts are refused, never cut. Codex was verified with 64 KiB.

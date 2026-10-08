@@ -88,6 +88,8 @@ impl HerdrApi for FakeHerdr {
 /// An adapter whose "transcript" is whatever the test puts in `answer`.
 struct FakeAdapter {
     answer: RefCell<Result<(String, String), HandoffError>>,
+    /// The transcript `resolve` finds (a Codex rewind starts a new file).
+    path: RefCell<PathBuf>,
 }
 
 impl AnswerAdapter for FakeAdapter {
@@ -95,7 +97,7 @@ impl AnswerAdapter for FakeAdapter {
         Ok(ResolvedSession {
             binding: binding.clone(),
             native_id: binding.session.value.clone(),
-            transcript_path: PathBuf::from("/fake.jsonl"),
+            transcript_path: self.path.borrow().clone(),
         })
     }
     fn latest_completed(
@@ -136,6 +138,7 @@ impl World {
                     "msg_1".into(),
                     "## 回答\n\n```rust\nfn main() {}\n```\n日本語".into(),
                 ))),
+                path: RefCell::new(PathBuf::from("/fake.jsonl")),
             }),
             config: Config::defaults(std::path::Path::new("/home/user")),
         }
@@ -366,4 +369,19 @@ fn prompt_refuses_terminal_control_characters() {
     let answer = snapshot("tab\there\r\nnext");
     assert!(build_prompt("go", &answer).is_ok());
     assert!(build_prompt("bad\x1b", &snapshot("ok")).is_err());
+}
+
+#[test]
+fn source_transcript_switch_blocks_send() {
+    // After a Codex rewind, A's history continues in a new file; the old
+    // file still holds the rewound answer.
+    let w = World::new();
+    let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
+    *w.adapters.0.path.borrow_mut() = PathBuf::from("/fake_segment.jsonl");
+    let err = w
+        .service()
+        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .unwrap_err();
+    assert!(matches!(err, HandoffError::SourceChanged(_)), "{err:?}");
+    assert_eq!(w.herdr.sent(), 0);
 }
