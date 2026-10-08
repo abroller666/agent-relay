@@ -137,3 +137,132 @@ pub fn subdirs(dir: &Path) -> Result<Vec<PathBuf>, HandoffError> {
     dirs.sort();
     Ok(dirs)
 }
+
+/// The rollout files of one Codex thread.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodexRollouts {
+    /// `rollout-<time>-<id>.jsonl`, if present.
+    pub base: Option<PathBuf>,
+    /// `rollout-<time>-<id>_<segment>.jsonl`, oldest first. A rewind
+    /// starts a new segment; later turns go to the newest one.
+    pub segments: Vec<(String, PathBuf)>,
+}
+
+impl CodexRollouts {
+    /// The file the thread's current history ends in.
+    pub fn active(&self) -> &Path {
+        match self.segments.last() {
+            Some((_, path)) => path,
+            None => self.base.as_deref().expect("rollouts without files"),
+        }
+    }
+}
+
+/// The rollouts of Codex thread `id` under `<root>/YYYY/MM/DD/`.
+pub fn find_codex_rollouts(
+    roots: &[PathBuf],
+    id: &str,
+    limits: &ReadLimits,
+) -> Result<CodexRollouts, HandoffError> {
+    validate_session_id(id)?;
+    let mut seen = 0;
+    let mut bases = Vec::new();
+    let mut segments: Vec<(String, PathBuf)> = Vec::new();
+    for root in roots {
+        for year in subdirs(root)? {
+            for month in subdirs(&year)? {
+                for day in subdirs(&month)? {
+                    let entries = std::fs::read_dir(&day).map_err(|e| {
+                        HandoffError::TranscriptUnavailable(format!("{}: {e}", day.display()))
+                    })?;
+                    for entry in entries.filter_map(Result::ok) {
+                        seen += 1;
+                        if seen > limits.max_candidates {
+                            return Err(too_many(limits));
+                        }
+                        let path = entry.path();
+                        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                            continue;
+                        };
+                        match rollout_segment(name, id) {
+                            Some(None) => bases.push(path),
+                            Some(Some(segment)) => segments.push((segment, path)),
+                            None => {}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if bases.len() > 1 {
+        return Err(HandoffError::SessionAmbiguous(format!(
+            "{id}: {}件",
+            bases.len()
+        )));
+    }
+    segments.sort();
+    if segments.windows(2).any(|w| w[0].0 == w[1].0) {
+        return Err(HandoffError::SessionAmbiguous(format!(
+            "{id}: 同じセグメントが複数あります"
+        )));
+    }
+    let base = bases.pop();
+    if base.is_none() && segments.is_empty() {
+        return Err(unique(Vec::new(), id).unwrap_err());
+    }
+    Ok(CodexRollouts { base, segments })
+}
+
+/// For a rollout file of thread `id`: Some(None) for its base file,
+/// Some(Some(segment)) for a segment, None for any other file.
+fn rollout_segment(name: &str, id: &str) -> Option<Option<String>> {
+    let stem = name.strip_prefix("rollout-")?.strip_suffix(".jsonl")?;
+    // `YYYY-MM-DDTHH-MM-SS-<id>[_<segment>]`
+    let (time, rest) = (stem.get(..19)?, stem.get(19..)?.strip_prefix('-')?);
+    if time.as_bytes().get(10) != Some(&b'T') {
+        return None;
+    }
+    if rest == id {
+        return Some(None);
+    }
+    let segment = rest.strip_prefix(id)?.strip_prefix('_')?;
+    validate_session_id(segment).ok()?;
+    Some(Some(segment.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ID: &str = "01a118e3-a882-7d10-9675-afffb81169d9";
+
+    #[test]
+    fn rollout_names() {
+        assert_eq!(
+            rollout_segment(&format!("rollout-2026-10-08T09-22-15-{ID}.jsonl"), ID),
+            Some(None)
+        );
+        assert_eq!(
+            rollout_segment(
+                &format!(
+                    "rollout-2026-10-08T09-26-33-{ID}_01a118e7-96eb-7db2-a456-fd93d22a289f.jsonl"
+                ),
+                ID
+            ),
+            Some(Some("01a118e7-96eb-7db2-a456-fd93d22a289f".into()))
+        );
+        // Another thread whose id ends the same way.
+        assert_eq!(
+            rollout_segment(
+                &format!("rollout-2026-10-08T09-22-15-{ID}.jsonl"),
+                "afffb81169d9"
+            ),
+            None
+        );
+        assert_eq!(rollout_segment(&format!("{ID}.jsonl"), ID), None);
+        assert_eq!(
+            rollout_segment(&format!("rollout-x-{ID}_../a.jsonl"), ID),
+            None
+        );
+    }
+}

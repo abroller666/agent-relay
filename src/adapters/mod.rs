@@ -5,6 +5,7 @@
 //! or fall back to another session or to the screen.
 
 pub mod claude;
+pub mod codex;
 
 use std::time::Duration;
 
@@ -44,7 +45,7 @@ impl AdapterRegistry for DefaultAdapters {
     fn adapter(&self, agent: AgentKind) -> Option<&dyn AnswerAdapter> {
         match agent {
             AgentKind::Claude => Some(&claude::ClaudeAdapter),
-            AgentKind::Codex => None,
+            AgentKind::Codex => Some(&codex::CodexAdapter),
         }
     }
 }
