@@ -6,6 +6,7 @@
 //! `session`); `handoff` checks both panes again and sends the prompt once.
 
 pub mod adapters;
+pub mod codex_daemon;
 pub mod config;
 pub mod error;
 pub mod handoff;

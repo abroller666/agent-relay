@@ -15,6 +15,7 @@ use nix::sys::termios::{self, FlushArg, SetArg, Termios};
 use serde_json::json;
 
 use agent_relay::adapters::DefaultAdapters;
+use agent_relay::codex_daemon::{DaemonClient, resolve_agent};
 use agent_relay::config::Config;
 use agent_relay::handoff::HandoffService;
 use agent_relay::herdr::{HerdrApi, HerdrClient};
@@ -73,7 +74,8 @@ fn open() -> Result<(), String> {
     let dir = state_dir();
     state::sweep(&dir, state::MAX_AGE);
 
-    let (source, error, terminal) = match herdr.agent(&pane_id) {
+    let daemon = DaemonClient::from_env(&home());
+    let (source, error, terminal) = match resolve_agent(&herdr, Some(&daemon), &pane_id) {
         Ok(agent) => {
             let terminal = agent.binding.terminal_id.clone();
             (Some(agent.binding), None, terminal)
@@ -124,10 +126,12 @@ fn popup_loop(dir: &Path, state: PopupState) -> Result<(), String> {
     let config = config()?;
     let herdr = HerdrClient::from_env().map_err(|e| e.to_string())?;
     let adapters = DefaultAdapters;
+    let daemon = DaemonClient::from_env(&home());
     let svc = LiveService {
         herdr: &herdr,
         adapters: &adapters,
         config: &config,
+        daemon: Some(&daemon),
     };
     let mut popup = Popup::new(state, &svc);
     let mut screen = Screen::Loading;
@@ -140,7 +144,10 @@ fn popup_loop(dir: &Path, state: PopupState) -> Result<(), String> {
         let thread_config = config.clone();
         std::thread::spawn(move || {
             let result = HerdrClient::from_env().and_then(|herdr| {
-                HandoffService::new(&herdr, &DefaultAdapters, &thread_config).prepare(source)
+                let daemon = DaemonClient::from_env(&home());
+                HandoffService::new(&herdr, &DefaultAdapters, &thread_config)
+                    .with_codex_daemon(&daemon)
+                    .prepare(source)
             });
             let _ = tx.send(result);
         });

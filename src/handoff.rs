@@ -6,6 +6,7 @@
 //! whose result is unknown is reported as such and never retried.
 
 use crate::adapters::AdapterRegistry;
+use crate::codex_daemon::{CodexDaemon, resolve_agent};
 use crate::config::Config;
 use crate::error::HandoffError;
 use crate::herdr::{AgentSnapshot, HerdrApi};
@@ -28,6 +29,7 @@ pub struct HandoffService<'a> {
     herdr: &'a dyn HerdrApi,
     adapters: &'a dyn AdapterRegistry,
     config: &'a Config,
+    daemon: Option<&'a dyn CodexDaemon>,
 }
 
 impl<'a> HandoffService<'a> {
@@ -40,7 +42,20 @@ impl<'a> HandoffService<'a> {
             herdr,
             adapters,
             config,
+            daemon: None,
         }
+    }
+
+    /// Also identifies Codex panes on the shared app-server daemon by
+    /// their titles (see `codex_daemon`).
+    pub fn with_codex_daemon(mut self, daemon: &'a dyn CodexDaemon) -> Self {
+        self.daemon = Some(daemon);
+        self
+    }
+
+    /// The agent in `pane_id` with its session binding.
+    pub fn agent(&self, pane_id: &str) -> Result<AgentSnapshot, HandoffError> {
+        resolve_agent(self.herdr, self.daemon, pane_id)
     }
 
     /// The last finished answer of `source`, which must still be the same
@@ -133,7 +148,7 @@ impl<'a> HandoffService<'a> {
                 ));
             }
         }
-        let now = match self.herdr.agent(&target.pane_id) {
+        let now = match self.agent(&target.pane_id) {
             Ok(now) => now,
             Err(HandoffError::UnsupportedAgent(_) | HandoffError::SessionUnavailable(_)) => {
                 return Err(HandoffError::TargetChanged(
@@ -167,7 +182,7 @@ impl<'a> HandoffService<'a> {
 
     /// `source` as Herdr sees it now, if it is still the same idle session.
     fn current_source(&self, source: &PaneBinding) -> Result<AgentSnapshot, HandoffError> {
-        let now = match self.herdr.agent(&source.pane_id) {
+        let now = match self.agent(&source.pane_id) {
             Ok(now) => now,
             Err(HandoffError::UnsupportedAgent(_) | HandoffError::SessionUnavailable(_)) => {
                 return Err(HandoffError::SourceChanged(

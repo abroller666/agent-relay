@@ -506,3 +506,41 @@ fn chosen_answer_no_longer_in_the_conversation_blocks_send() {
     assert!(matches!(err, HandoffError::SourceChanged(_)), "{err:?}");
     assert_eq!(w.herdr.sent(), 0);
 }
+
+struct OneThreadDaemon;
+
+impl agent_relay::codex_daemon::CodexDaemon for OneThreadDaemon {
+    fn loaded_threads(&self) -> Result<Vec<agent_relay::codex_daemon::DaemonThread>, HandoffError> {
+        Ok(vec![agent_relay::codex_daemon::DaemonThread {
+            id: DST_SESSION.into(),
+            name: Some("Review".into()),
+            cwd: Some("/home/user/app".into()),
+        }])
+    }
+}
+
+#[test]
+fn codex_on_the_shared_daemon_is_reached_through_its_title() {
+    let w = World::new();
+    // Herdr has no session for the Codex pane; its title names the thread.
+    w.herdr.set("w1:pB", |a| {
+        a.as_object_mut().unwrap().remove("agent_session");
+        a["terminal_title_stripped"] = json!("Review | app");
+        a["foreground_cwd"] = json!("/home/user/app");
+    });
+    let daemon = OneThreadDaemon;
+    let service = w.service().with_codex_daemon(&daemon);
+    let answer = service.prepare(w.herdr.binding("w1:pA")).unwrap();
+    let target = service.agent("w1:pB").unwrap().binding;
+    assert_eq!(target.session.value, DST_SESSION);
+    assert_eq!(
+        service.send(&answer, &target, "go").unwrap(),
+        SendOutcome::Accepted
+    );
+    // Without the daemon the pane cannot be identified.
+    let err = w.service().agent("w1:pB").unwrap_err();
+    assert!(
+        matches!(err, HandoffError::SessionUnavailable(_)),
+        "{err:?}"
+    );
+}

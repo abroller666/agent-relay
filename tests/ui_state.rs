@@ -579,6 +579,7 @@ mod live_targets {
             herdr: &Herdr,
             adapters: &DefaultAdapters,
             config: &config,
+            daemon: None,
         };
         let rows = svc.targets(&source()).unwrap();
         let ids: Vec<&str> = rows.iter().map(|r| r.pane_id.as_str()).collect();

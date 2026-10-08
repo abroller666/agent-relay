@@ -127,3 +127,9 @@ Codex 0.161.0 の TUI は、既定で共有のバックグラウンド app-serve
 
 - `codex --no-daemon` で起動すると、最初の発言後にセッションが登録され、本プラグインで最新の回答・回答一覧とも読めた（0.161.0 の rollout 形式は 0.160.1 と同じ範囲で読めた）。
 - デーモンを起動したペインが後で Codex を動かすと、他のペインの Codex セッションまでそのペインに登録されるおそれがある（未再現）。`--no-daemon` で避けられる。
+
+### 対応（2026-10-09）
+
+既定（デーモン経由）の Codex のペインは、ペインの端末タイトル「スレッド名 | プロジェクト」と作業ディレクトリが、デーモン（`$CODEX_HOME/app-server-control/app-server-control.sock`、Unix ソケット上の WebSocket JSON-RPC）の `thread/loaded/list` → `thread/read` の `name`・`cwd` と1件だけ一致したとき、そのスレッドIDで扱う（`src/codex_daemon.rs`）。Herdr の登録がデーモン上のスレッドを指すときはタイトルで確かめられた場合だけ使い、デーモンにないスレッド（`--no-daemon`）は Herdr の登録をそのまま使う。
+
+実機確認：同じディレクトリでデーモン経由の Codex 2つと Claude 1つを動かし、Codex 2つが別スレッドとして特定され、Codex→Claude・Claude→Codex の送信がともに処理された。同名スレッドの曖昧さ、名前が付く前、デーモンに届かない場合は自動テストで確認。

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::adapters::AdapterRegistry;
+use crate::codex_daemon::CodexDaemon;
 use crate::config::Config;
 use crate::error::HandoffError;
 use crate::handoff::{HandoffService, SendOutcome};
@@ -877,11 +878,17 @@ pub struct LiveService<'a> {
     pub herdr: &'a dyn HerdrApi,
     pub adapters: &'a dyn AdapterRegistry,
     pub config: &'a Config,
+    /// For Codex panes on the shared app-server daemon.
+    pub daemon: Option<&'a dyn CodexDaemon>,
 }
 
 impl LiveService<'_> {
     fn handoff(&self) -> HandoffService<'_> {
-        HandoffService::new(self.herdr, self.adapters, self.config)
+        let service = HandoffService::new(self.herdr, self.adapters, self.config);
+        match self.daemon {
+            Some(daemon) => service.with_codex_daemon(daemon),
+            None => service,
+        }
     }
 }
 
@@ -994,7 +1001,7 @@ impl LiveService<'_> {
         let reason = if AgentKind::from_herdr(&agent).is_none() {
             Some("unsupported agent".to_string())
         } else {
-            match self.herdr.agent(&p.pane_id) {
+            match self.handoff().agent(&p.pane_id) {
                 Ok(a) => {
                     row.status = a.agent_status.clone();
                     if a.is_ready() {
@@ -1010,7 +1017,7 @@ impl LiveService<'_> {
                     }
                 }
                 Err(HandoffError::SessionUnavailable(_)) => {
-                    Some("no session yet (send it one prompt first)".to_string())
+                    Some("session unknown (send it one prompt first)".to_string())
                 }
                 Err(e) => Some(e.to_string()),
             }
