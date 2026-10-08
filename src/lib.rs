@@ -5,8 +5,10 @@
 //! agent (`adapters`). Herdr tells which session a pane runs (`herdr`,
 //! `session`); `handoff` checks both panes again and sends the prompt once.
 
+pub mod adapters;
 pub mod config;
 pub mod error;
 pub mod herdr;
 pub mod model;
 pub mod session;
+pub mod transcript;
