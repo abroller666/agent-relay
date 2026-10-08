@@ -87,7 +87,7 @@ impl PopupService for FakeService {
     fn targets(&self, _source: &PaneBinding) -> Result<Vec<TargetRow>, HandoffError> {
         let row = |pane: &str, agent, ok: bool| TargetRow {
             pane_id: pane.into(),
-            label: pane.into(),
+            label: format!("title of {}", &pane[3..]),
             agent: "codex".into(),
             status: "idle".into(),
             binding: ok.then(|| binding(pane, agent, "01a118e3-a882-7d10-9675-afffb81169d9")),
@@ -318,4 +318,18 @@ fn stale_state_files_are_swept() {
     assert!(state::load(&states, &old).unwrap().is_none());
     assert!(state::load(&states, &fresh).unwrap().is_some());
     assert!(states.join("unrelated.txt").exists());
+}
+
+#[test]
+fn picker_rows_show_pane_ids() {
+    let svc = FakeService::new();
+    let mut p = Popup::new(PopupState::new("op1", Some(source())), &svc);
+    p.load();
+    let screen = p.render(100, 20);
+    for pane in ["w1:pB", "w1:pC", "w1:pD"] {
+        assert!(
+            screen.lines().any(|l| l.contains(pane) && l.contains("codex") || l.contains(pane) && l.contains("claude")),
+            "{pane} missing from:\n{screen}"
+        );
+    }
 }

@@ -96,3 +96,26 @@ Codexへの256KiBは利用枠の都合で未検証。timeoutは再現してい�
 3. Codexは最初のプロンプトを送るまでHerdrにセッション参照が登録されない。
 4. Claude 2.1.219以前など `turn_duration` を記録しない版は、すべて `CompletionUncertain` になる。
 5. 事前チェックと送信は不可分ではない。チェック直後の入れ替わりは排除できない。Bの入力欄に未送信の文字があると、送った本文の前に連結される（Claudeはrewind後に入力欄へ前の指示を戻す）。利用条件として「Bの入力欄が空であること」をREADMEに記載する。
+
+## 実機受け入れ（タスク6）
+
+2026-10-08、macOS、上記と同じテスト用ワークスペース。ポップアップ本体（`bin/pane-relay`）をテスト用の5つ目のpaneで直接起動し、`herdr pane send-text` / `send-keys` で操作した。Aの固定は `pane-relay open` と同じ形式の状態ファイルをスクリプトで作って行った。**`herdr plugin link` とキー割り当てによる起動（`open` アクション → `plugin.pane.open` のpopup表示）は、ユーザーのHerdr設定を変更するため未実施。**
+
+Aの回答はいずれも「見出し・日本語の段落・Rustのコードブロック・40行の番号付きリスト・`<TAG>-END`」（54行、約0.8KB）。指示は日本語（1件目は `Alt+Enter` で2行）。
+
+| ケース | 結果 |
+|---|---|
+| Claude → Codex | 1回だけ届き、回答部分は原文と完全一致。Codexが「40行 / ALPHA-END」と処理 |
+| Codex → Claude | 1回だけ届き、完全一致（Claudeは長い貼り付けを `<pasted_content>` で包んで記録するが中身は同一）。Claudeが処理 |
+| Codex → Codex | 1回だけ、完全一致、処理された |
+| Claude → Claude | 1回だけ、完全一致、処理された |
+| 送信時に `Enter` を3回連続 | 1回だけ送信。残りは破棄され「送信しました」画面のまま |
+| ポップアップ表示後にAが新しい回答 | 送信せず、新しい回答を読み直し、指示を保持して「回答が更新されました」 |
+| Bが処理中 | 一覧で `✕ 処理中`、選んでも送れない |
+| エージェントのいないpane | 一覧で `✕ AIエージェントなし` |
+| 稼働中のA（このセッション自身） | `AgentNotReady` で取得しない |
+| 終了時 | 状態ファイルが削除される |
+
+自動テスト：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`（97件）、`sh scripts/build.sh` がすべて成功。
+
+未確認：Linux、`herdr plugin link` 経由の起動とpopup表示、Codexへの256KiB送信、送信のtimeout（実際には発生させていない。fakeのソケットで `DeliveryUnknown` になることのみ確認）、Stop hookのない環境でのClaudeの `turn_duration`。

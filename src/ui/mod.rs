@@ -474,8 +474,8 @@ impl<'a> Popup<'a> {
                 .map(|r| format!("  ✕ {r}"))
                 .unwrap_or_default();
             let text = format!(
-                "{mark} {number} {label}{pad}  {:<8} {:<7}{reason}",
-                row.agent, row.status
+                "{mark} {number} {label}{pad}  {:<8} {:<8} {:<7}{reason}",
+                row.pane_id, row.agent, row.status
             );
             let text = fit(&text, cols);
             lines.push(match (i == self.picker.cursor, row.binding.is_some()) {
