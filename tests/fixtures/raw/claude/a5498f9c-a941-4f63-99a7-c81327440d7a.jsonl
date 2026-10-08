@@ -1,0 +1,52 @@
+{"type": "last-prompt"}
+{"type": "mode"}
+{"type": "permission-mode"}
+{"type": "atis-latch"}
+{"type": "attachment", "uuid": "d0091281-46a3-4b6e-bdf6-3532a05ef986", "parentUuid": null, "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:19:30.188Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "0d0a3f6d-bc74-4b93-8dfe-19f81eeb7d23", "parentUuid": "d0091281-46a3-4b6e-bdf6-3532a05ef986", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:19:30.237Z", "version": "2.1.293"}
+{"type": "file-history-snapshot"}
+{"type": "user", "uuid": "6064b48e-4c62-4f9b-97d7-9678b19b17d4", "parentUuid": "0d0a3f6d-bc74-4b93-8dfe-19f81eeb7d23", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.100Z", "version": "2.1.293", "message": {"role": "user", "content": "Reply with exactly the text BRAVO-TWO and nothing else."}}
+{"type": "attachment", "uuid": "30c5787e-4b52-4d3d-8824-886b3e14250c", "parentUuid": "6064b48e-4c62-4f9b-97d7-9678b19b17d4", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.098Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "09145977-5d14-4bd1-8cb0-60111d293f13", "parentUuid": "30c5787e-4b52-4d3d-8824-886b3e14250c", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.099Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "d1be7590-518c-4a8a-8b9b-26b7dc3fbbf0", "parentUuid": "09145977-5d14-4bd1-8cb0-60111d293f13", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.099Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "ae993913-e41c-4ff6-9815-7194bfbb8bbe", "parentUuid": "d1be7590-518c-4a8a-8b9b-26b7dc3fbbf0", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.099Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "daa591e6-a719-4bb8-ba93-a1396a4d620a", "parentUuid": "ae993913-e41c-4ff6-9815-7194bfbb8bbe", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.099Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "a6e7fa89-f031-4821-bb8b-358d1c3c22d8", "parentUuid": "daa591e6-a719-4bb8-ba93-a1396a4d620a", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.099Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "0d2d91b4-9c77-45bf-8a69-a7f33f5f997b", "parentUuid": "a6e7fa89-f031-4821-bb8b-358d1c3c22d8", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.099Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "0ba27232-80d1-4ee2-a190-c493be9f1fd2", "parentUuid": "0d2d91b4-9c77-45bf-8a69-a7f33f5f997b", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.160Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "e98e3cde-dbe1-4631-9484-b7b147910765", "parentUuid": "0ba27232-80d1-4ee2-a190-c493be9f1fd2", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.160Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "99f4cb31-17ed-4f01-8234-3d0af3b70652", "parentUuid": "e98e3cde-dbe1-4631-9484-b7b147910765", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.162Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "b27e5130-12f4-4c95-bc8c-6133b39a65f5", "parentUuid": "99f4cb31-17ed-4f01-8234-3d0af3b70652", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.163Z", "version": "2.1.293"}
+{"type": "attachment", "uuid": "57550fec-25e4-48d1-92f5-a531e17731d4", "parentUuid": "b27e5130-12f4-4c95-bc8c-6133b39a65f5", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:33.164Z", "version": "2.1.293"}
+{"type": "last-prompt"}
+{"type": "mode"}
+{"type": "permission-mode"}
+{"type": "atis-latch"}
+{"type": "ai-title"}
+{"type": "assistant", "uuid": "ce79a2c6-2e8e-4df6-bad2-8bafd3a0b10f", "parentUuid": "57550fec-25e4-48d1-92f5-a531e17731d4", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:35.163Z", "version": "2.1.293", "message": {"id": "msg_011CfopGMuHgGK3n2LFced8q", "role": "assistant", "type": "message", "model": "claude-haiku-5-5", "stop_reason": "end_turn", "content": [{"type": "thinking", "thinking": "", "signature": ""}]}}
+{"type": "assistant", "uuid": "0c6af8ad-3b5f-437a-bae2-a08252a32a70", "parentUuid": "ce79a2c6-2e8e-4df6-bad2-8bafd3a0b10f", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:35.178Z", "version": "2.1.293", "message": {"id": "msg_011CfopGMuHgGK3n2LFced8q", "role": "assistant", "type": "message", "model": "claude-haiku-5-5", "stop_reason": "end_turn", "content": [{"type": "text", "text": "BRAVO-TWO"}]}}
+{"type": "attachment", "uuid": "39074059-ddfe-4fd1-a95c-e957dfcc56f1", "parentUuid": "0c6af8ad-3b5f-437a-bae2-a08252a32a70", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:35.197Z", "version": "2.1.293"}
+{"type": "system", "subtype": "stop_hook_summary", "uuid": "bed680d1-5458-4b0c-8181-a6cd11dc2671", "parentUuid": "39074059-ddfe-4fd1-a95c-e957dfcc56f1", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:35.288Z", "version": "2.1.293"}
+{"type": "system", "subtype": "turn_duration", "uuid": "8dc99af6-5336-412b-bb8c-26272ef4558f", "parentUuid": "bed680d1-5458-4b0c-8181-a6cd11dc2671", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:22:35.290Z", "version": "2.1.293", "isMeta": false, "durationMs": 2315, "messageCount": 19}
+{"type": "last-prompt"}
+{"type": "ai-title"}
+{"type": "mode"}
+{"type": "permission-mode"}
+{"type": "atis-latch"}
+{"type": "file-history-snapshot"}
+{"type": "user", "uuid": "7584bede-0cea-45dd-9c28-6b5d12ea4993", "parentUuid": "8dc99af6-5336-412b-bb8c-26272ef4558f", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:23:34.139Z", "version": "2.1.293", "message": {"role": "user", "content": "First write one sentence saying you will check the directory. Then run `pwd` with Bash. Then give a final answer of three markdown bullet points in Japanese, ending with the word FINAL-BRAVO."}}
+{"type": "attachment", "uuid": "d50a9983-19e3-4f68-ab97-572b8d62eef5", "parentUuid": "7584bede-0cea-45dd-9c28-6b5d12ea4993", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:23:34.139Z", "version": "2.1.293"}
+{"type": "assistant", "uuid": "78aeed94-3569-4e99-b713-d5ce336a8ccd", "parentUuid": "d50a9983-19e3-4f68-ab97-572b8d62eef5", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:23:34.978Z", "version": "2.1.293", "message": {"id": "msg_011CfopLo1Wjo3ZgLAmaMu15", "role": "assistant", "type": "message", "model": "claude-haiku-5-5", "stop_reason": "tool_use", "content": [{"type": "text", "text": "I'll check the working directory now."}]}}
+{"type": "assistant", "uuid": "86dc47ae-823c-4232-8a13-010c078674b9", "parentUuid": "78aeed94-3569-4e99-b713-d5ce336a8ccd", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:23:35.051Z", "version": "2.1.293", "message": {"id": "msg_011CfopLo1Wjo3ZgLAmaMu15", "role": "assistant", "type": "message", "model": "claude-haiku-5-5", "stop_reason": "tool_use", "content": [{"type": "tool_use", "id": "toolu_01RKAxKAucUSTzf1gKWmfRGU", "name": "Bash", "input": {}}]}}
+{"type": "user", "uuid": "a62b4b08-7a92-46d5-98f8-9078122782aa", "parentUuid": "86dc47ae-823c-4232-8a13-010c078674b9", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:23:36.012Z", "version": "2.1.293", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_01RKAxKAucUSTzf1gKWmfRGU", "content": "<redacted>"}]}}
+{"type": "attachment", "uuid": "72828009-8031-45d9-b327-ff0300fe1b5e", "parentUuid": "a62b4b08-7a92-46d5-98f8-9078122782aa", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:23:36.016Z", "version": "2.1.293"}
+{"type": "assistant", "uuid": "f87ef614-32ff-487d-8877-4d4a225b9367", "parentUuid": "72828009-8031-45d9-b327-ff0300fe1b5e", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:23:37.279Z", "version": "2.1.293", "message": {"id": "msg_011CfopLvoa79GvPFb1GdYj3", "role": "assistant", "type": "message", "model": "claude-haiku-5-5", "stop_reason": "end_turn", "content": [{"type": "text", "text": "- 作業ディレクトリは `/work` です。\n- `pwd` の出力と一致しており、これが現在のシェルの場所です。\n- 今回の操作は読み取りのみで、ファイルの変更は行っていません。 FINAL-BRAVO"}]}}
+{"type": "system", "subtype": "stop_hook_summary", "uuid": "bdb434da-7a6a-4372-ba5b-174044d76d8c", "parentUuid": "f87ef614-32ff-487d-8877-4d4a225b9367", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:23:37.575Z", "version": "2.1.293"}
+{"type": "system", "subtype": "turn_duration", "uuid": "338dff21-887f-468d-a4cc-ddde8dc508e1", "parentUuid": "bdb434da-7a6a-4372-ba5b-174044d76d8c", "isSidechain": false, "sessionId": "a5498f9c-a941-4f63-99a7-c81327440d7a", "timestamp": "2026-10-08T00:23:37.578Z", "version": "2.1.293", "isMeta": false, "durationMs": 3453, "messageCount": 28}
+{"type": "file-history-snapshot"}
+{"type": "cost-state"}
+{"type": "last-prompt"}
+{"type": "cost-state"}
+{"type": "file-history-snapshot"}
+{"type": "cost-state"}
+{"type": "cost-state"}
