@@ -117,6 +117,6 @@ Aの回答はいずれも「見出し・日本語の段落・Rustのコードブ
 | 稼働中のA（このセッション自身） | `AgentNotReady` で取得しない |
 | 終了時 | 状態ファイルが削除される |
 
-自動テスト：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`（97件）、`sh scripts/build.sh` がすべて成功。
+自動テスト：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`（98件）、`sh scripts/build.sh` がすべて成功。
 
 未確認：Linux、`herdr plugin link` 経由の起動とpopup表示、Codexへの256KiB送信、送信のtimeout（実際には発生させていない。fakeのソケットで `DeliveryUnknown` になることのみ確認）、Stop hookのない環境でのClaudeの `turn_duration`。
