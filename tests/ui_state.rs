@@ -328,7 +328,9 @@ fn picker_rows_show_pane_ids() {
     let screen = p.render(100, 20);
     for pane in ["w1:pB", "w1:pC", "w1:pD"] {
         assert!(
-            screen.lines().any(|l| l.contains(pane) && l.contains("codex") || l.contains(pane) && l.contains("claude")),
+            screen
+                .lines()
+                .any(|l| l.contains(pane) && l.contains("codex")),
             "{pane} missing from:\n{screen}"
         );
     }
