@@ -52,6 +52,7 @@ struct FakeService {
     sends: RefCell<Vec<(String, String)>>,
     send_result: RefCell<Result<SendOutcome, HandoffError>>,
     prepares: RefCell<usize>,
+    source_label: RefCell<Option<String>>,
 }
 
 impl FakeService {
@@ -61,6 +62,7 @@ impl FakeService {
             sends: RefCell::new(Vec::new()),
             send_result: RefCell::new(Ok(SendOutcome::Accepted)),
             prepares: RefCell::new(0),
+            source_label: RefCell::new(None),
         }
     }
     fn sent(&self) -> usize {
@@ -83,6 +85,9 @@ impl PopupService for FakeService {
             .borrow_mut()
             .push((target.pane_id.clone(), instruction.to_string()));
         self.send_result.borrow().clone()
+    }
+    fn pane_label(&self, _pane: &PaneBinding) -> Option<String> {
+        self.source_label.borrow().clone()
     }
     fn targets(&self, _source: &PaneBinding) -> Result<Vec<TargetRow>, HandoffError> {
         let row = |pane: &str, agent, ok: bool| TargetRow {
@@ -418,4 +423,20 @@ fn error_messages_are_english() {
     for e in errors {
         assert!(!has_japanese(&e.to_string()), "{e}");
     }
+}
+
+#[test]
+fn picker_names_the_source_by_its_pane_name() {
+    let svc = FakeService::new();
+    let mut p = Popup::new(PopupState::new("op1", Some(source())), &svc);
+    p.load();
+    let header = p.render(120, 20);
+    assert!(header.contains("from Claude Code w1:pA"), "{header}");
+
+    *svc.source_label.borrow_mut() = Some("api server".into());
+    let mut p = Popup::new(PopupState::new("op1", Some(source())), &svc);
+    p.load();
+    let header = p.render(120, 20);
+    assert!(header.contains("from api server"), "{header}");
+    assert!(!header.contains("from Claude Code"), "{header}");
 }

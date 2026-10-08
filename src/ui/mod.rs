@@ -64,6 +64,10 @@ pub trait PopupService {
     ) -> Result<SendOutcome, HandoffError>;
     /// The other panes of the source's tab, in screen order.
     fn targets(&self, source: &PaneBinding) -> Result<Vec<TargetRow>, HandoffError>;
+    /// The name given to the pane in Herdr (`herdr pane rename`), if any.
+    fn pane_label(&self, _pane: &PaneBinding) -> Option<String> {
+        None
+    }
     /// Called right before a send, which can take a while.
     fn sending(&self) {}
 }
@@ -75,6 +79,8 @@ pub struct Popup<'a> {
     editor: Editor,
     picker: Picker,
     rows: Vec<TargetRow>,
+    /// The source pane's name in Herdr, read with the target list.
+    source_label: Option<String>,
     message: Option<Message>,
     /// Input typed while sending is dropped; set when the caller should
     /// also discard what is still buffered in the terminal.
@@ -110,6 +116,7 @@ impl<'a> Popup<'a> {
             editor,
             picker: Picker::default(),
             rows: Vec::new(),
+            source_label: None,
             message,
             discard_input: false,
             just_sent: false,
@@ -197,6 +204,7 @@ impl<'a> Popup<'a> {
         let Some(source) = self.state.source.clone() else {
             return;
         };
+        self.source_label = self.svc.pane_label(&source);
         match self.svc.targets(&source) {
             Ok(rows) => self.rows = rows,
             Err(e) => {
@@ -446,7 +454,12 @@ impl<'a> Popup<'a> {
     fn draw_picker(&mut self, lines: &mut Vec<String>, cols: usize, rows: usize) {
         lines.push(format!(
             "{}  {}",
-            bold(&format!("Choose the target (from {})", self.source_name())),
+            bold(&format!(
+                "Choose the target (from {})",
+                self.source_label
+                    .clone()
+                    .unwrap_or_else(|| self.source_name())
+            )),
             dim("↑↓/jk: move  1-9/␣: pick  ⏎: choose  Esc/C-g: quit")
         ));
         let space = rows.saturating_sub(2).max(1);
@@ -656,6 +669,16 @@ impl PopupService for LiveService<'_> {
             "\x1b[999;1H\x1b[2K\x1b[33msending…\x1b[0m".as_bytes(),
         );
         let _ = std::io::Write::flush(&mut out);
+    }
+
+    fn pane_label(&self, pane: &PaneBinding) -> Option<String> {
+        let panes = self.herdr.list_panes().ok()?;
+        let label = panes
+            .into_iter()
+            .find(|p| p.pane_id == pane.pane_id)?
+            .label?;
+        let label = label.trim();
+        (!label.is_empty()).then(|| label.to_string())
     }
 
     fn targets(&self, source: &PaneBinding) -> Result<Vec<TargetRow>, HandoffError> {
