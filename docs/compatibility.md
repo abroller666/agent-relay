@@ -120,3 +120,10 @@ Aの回答はいずれも「見出し・日本語の段落・Rustのコードブ
 自動テスト：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`（98件）、`sh scripts/build.sh` がすべて成功。
 
 未確認：Linux、`herdr plugin link` 経由の起動とpopup表示、Codexへの256KiB送信、送信のtimeout（実際には発生させていない。fakeのソケットで `DeliveryUnknown` になることのみ確認）、Stop hookのない環境でのClaudeの `turn_duration`。
+
+## Codex 0.161.0 のデーモン（2026-10-09 追記）
+
+Codex 0.161.0 の TUI は、既定で共有のバックグラウンド app-server（`codex app-server --managed-daemon`）を使う。SessionStart フックはこのデーモンの中で実行され、環境変数はデーモンを起動したペインのもの（実測：`HERDR_PANE_ID=w1:p4J`）になる。そのため Herdr の Codex 連携（integration v8）は、Codex が動いているペインにセッションを登録できない（テスト用ペインで再現。フックは `hook/started`→`hook/completed` と実行されていた）。
+
+- `codex --no-daemon` で起動すると、最初の発言後にセッションが登録され、本プラグインで最新の回答・回答一覧とも読めた（0.161.0 の rollout 形式は 0.160.1 と同じ範囲で読めた）。
+- デーモンを起動したペインが後で Codex を動かすと、他のペインの Codex セッションまでそのペインに登録されるおそれがある（未再現）。`--no-daemon` で避けられる。
