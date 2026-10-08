@@ -8,11 +8,11 @@
 use std::fs;
 use std::time::Duration;
 
-use pane_relay::adapters::AnswerAdapter;
-use pane_relay::adapters::codex::CodexAdapter;
-use pane_relay::config::Config;
-use pane_relay::error::HandoffError;
-use pane_relay::model::{AgentKind, AnswerSnapshot, PaneBinding, SessionRef};
+use agent_relay::adapters::AnswerAdapter;
+use agent_relay::adapters::codex::CodexAdapter;
+use agent_relay::config::Config;
+use agent_relay::error::HandoffError;
+use agent_relay::model::{AgentKind, AnswerSnapshot, PaneBinding, SessionRef};
 use serde_json::{Value, json};
 
 /// DELTA-FOUR, then a turn with commentary, `pwd` and a final answer.

@@ -468,14 +468,14 @@ impl<'a> Popup<'a> {
             Screen::Loading => {
                 lines.push(format!(
                     "{}  reading the answer…  {}",
-                    bold("pane-relay"),
+                    bold("agent-relay"),
                     dim("Esc/C-g: cancel")
                 ));
                 lines.push(dim(&format!("from {}", self.source_name())));
             }
             Screen::Fatal => {
                 lines.push(red(&format!(
-                    "pane-relay: {}",
+                    "agent-relay: {}",
                     self.message().unwrap_or("")
                 )));
                 lines.push(dim("press any key to close"));

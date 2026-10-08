@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 use crate::model::{AnswerSnapshot, PaneBinding};
 use crate::ui::Screen;
 
-const PREFIX: &str = "pane-relay-";
-const TMP_PREFIX: &str = ".tmp-pane-relay-";
+const PREFIX: &str = "agent-relay-";
+const TMP_PREFIX: &str = ".tmp-agent-relay-";
 
 /// How long a state file may outlive its popup.
 pub const MAX_AGE: Duration = Duration::from_secs(24 * 3600);

@@ -4,10 +4,10 @@
 use std::fs;
 use std::path::Path;
 
-use pane_relay::config::ReadLimits;
-use pane_relay::error::HandoffError;
-use pane_relay::model::AgentKind;
-use pane_relay::session::{binding_from_agent, find_claude_transcript};
+use agent_relay::config::ReadLimits;
+use agent_relay::error::HandoffError;
+use agent_relay::model::AgentKind;
+use agent_relay::session::{binding_from_agent, find_claude_transcript};
 use serde_json::json;
 
 const ID_A: &str = "c07c63dd-285d-4412-bb32-5654dd417828";

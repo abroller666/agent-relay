@@ -4,14 +4,14 @@
 use std::cell::RefCell;
 use std::path::PathBuf;
 
-use pane_relay::adapters::{AdapterRegistry, AnswerAdapter};
-use pane_relay::config::{Config, ReadLimits};
-use pane_relay::error::HandoffError;
-use pane_relay::handoff::{HandoffService, SendOutcome};
-use pane_relay::herdr::{HerdrApi, Layout, PaneSummary};
-use pane_relay::model::{AgentKind, AnswerSnapshot, PaneBinding, ResolvedSession};
-use pane_relay::prompt::build_prompt;
-use pane_relay::session::binding_from_agent;
+use agent_relay::adapters::{AdapterRegistry, AnswerAdapter};
+use agent_relay::config::{Config, ReadLimits};
+use agent_relay::error::HandoffError;
+use agent_relay::handoff::{HandoffService, SendOutcome};
+use agent_relay::herdr::{HerdrApi, Layout, PaneSummary};
+use agent_relay::model::{AgentKind, AnswerSnapshot, PaneBinding, ResolvedSession};
+use agent_relay::prompt::build_prompt;
+use agent_relay::session::binding_from_agent;
 use serde_json::{Value, json};
 
 const SRC_SESSION: &str = "c07c63dd-285d-4412-bb32-5654dd417828";

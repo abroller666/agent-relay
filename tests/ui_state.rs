@@ -6,11 +6,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
-use pane_relay::error::HandoffError;
-use pane_relay::handoff::SendOutcome;
-use pane_relay::model::{AgentKind, AnswerSnapshot, PaneBinding, ResolvedSession, SessionRef};
-use pane_relay::state::{self, PopupState};
-use pane_relay::ui::{Flow, Popup, PopupService, Screen, TargetRow};
+use agent_relay::error::HandoffError;
+use agent_relay::handoff::SendOutcome;
+use agent_relay::model::{AgentKind, AnswerSnapshot, PaneBinding, ResolvedSession, SessionRef};
+use agent_relay::state::{self, PopupState};
+use agent_relay::ui::{Flow, Popup, PopupService, Screen, TargetRow};
 
 fn binding(pane: &str, agent: AgentKind, session: &str) -> PaneBinding {
     PaneBinding {
@@ -515,10 +515,10 @@ fn long_names_keep_both_ends_of_the_header_visible() {
 
 mod live_targets {
     use super::*;
-    use pane_relay::adapters::DefaultAdapters;
-    use pane_relay::config::Config;
-    use pane_relay::herdr::{HerdrApi, Layout, PaneSummary};
-    use pane_relay::ui::LiveService;
+    use agent_relay::adapters::DefaultAdapters;
+    use agent_relay::config::Config;
+    use agent_relay::herdr::{HerdrApi, Layout, PaneSummary};
+    use agent_relay::ui::LiveService;
     use serde_json::{Value, json};
 
     /// Panes in two tabs of workspace w1 and in workspace w2.

@@ -100,7 +100,7 @@ Codexへの256KiBは利用枠の都合で未検証。timeoutは再現してい�
 
 ## 実機受け入れ（タスク6）
 
-2026-10-08、macOS、上記と同じテスト用ワークスペース。ポップアップ本体（`bin/pane-relay`）をテスト用の5つ目のpaneで直接起動し、`herdr pane send-text` / `send-keys` で操作した。Aの固定は `pane-relay open` と同じ形式の状態ファイルをスクリプトで作って行った。**`herdr plugin link` とキー割り当てによる起動（`open` アクション → `plugin.pane.open` のpopup表示）は、ユーザーのHerdr設定を変更するため未実施。**
+2026-10-08、macOS、上記と同じテスト用ワークスペース。ポップアップ本体（`bin/agent-relay`）をテスト用の5つ目のpaneで直接起動し、`herdr pane send-text` / `send-keys` で操作した。Aの固定は `agent-relay open` と同じ形式の状態ファイルをスクリプトで作って行った。**`herdr plugin link` とキー割り当てによる起動（`open` アクション → `plugin.pane.open` のpopup表示）は、ユーザーのHerdr設定を変更するため未実施。**
 
 Aの回答はいずれも「見出し・日本語の段落・Rustのコードブロック・40行の番号付きリスト・`<TAG>-END`」（54行、約0.8KB）。指示は日本語（1件目は `Alt+Enter` で2行）。
 

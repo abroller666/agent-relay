@@ -1,4 +1,4 @@
-# pane-relay
+# agent-relay
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![herdr plugin](https://img.shields.io/badge/herdr-plugin-8ec07c)](https://herdr.dev/plugins/)
@@ -54,8 +54,8 @@ Details: [docs/compatibility.md](docs/compatibility.md).
 ## Install
 
 ```sh
-git clone <this repository> pane-relay
-cd pane-relay
+git clone <this repository> agent-relay
+cd agent-relay
 sh scripts/build.sh
 herdr plugin link .
 ```
@@ -66,7 +66,7 @@ Bind a key in `~/.config/herdr/config.toml` (the key is an example), then run `h
 [[keys.command]]
 key = "prefix+h"
 type = "plugin_action"
-command = "abroller666.pane-relay.open"
+command = "abroller666.agent-relay.open"
 description = "hand the last answer to another pane"
 ```
 

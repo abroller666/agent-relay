@@ -177,7 +177,7 @@ impl HerdrClient {
     }
 
     fn call(&self, method: &str, params: Value) -> Result<Value, CallError> {
-        let mut req = json!({"id": "pane-relay", "method": method, "params": params}).to_string();
+        let mut req = json!({"id": "agent-relay", "method": method, "params": params}).to_string();
         req.push('\n');
         if req.len() > MAX_REQUEST_BYTES {
             return Err(CallError::TooLarge(req.len()));
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn prompt_accepted() {
         let (_dir, path) = serve_once(Some(
-            "{\"id\":\"pane-relay\",\"result\":{\"type\":\"agent_prompted\"}}\n",
+            "{\"id\":\"agent-relay\",\"result\":{\"type\":\"agent_prompted\"}}\n",
         ));
         HerdrClient::new(&path).prompt("w1:p1", "hi").unwrap();
     }
@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn herdr_timeout_is_delivery_unknown() {
         let (_dir, path) = serve_once(Some(
-            "{\"id\":\"pane-relay\",\"error\":{\"code\":\"timeout\",\"message\":\"t\"}}\n",
+            "{\"id\":\"agent-relay\",\"error\":{\"code\":\"timeout\",\"message\":\"t\"}}\n",
         ));
         let err = HerdrClient::new(&path).prompt("w1:p1", "hi").unwrap_err();
         assert!(matches!(err, HandoffError::DeliveryUnknown(_)), "{err:?}");
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn blocked_agent_is_not_ready() {
         let (_dir, path) = serve_once(Some(
-            "{\"id\":\"pane-relay\",\"error\":{\"code\":\"agent_blocked\",\"message\":\"b\"}}\n",
+            "{\"id\":\"agent-relay\",\"error\":{\"code\":\"agent_blocked\",\"message\":\"b\"}}\n",
         ));
         let err = HerdrClient::new(&path).prompt("w1:p1", "hi").unwrap_err();
         assert!(matches!(err, HandoffError::AgentNotReady(_)), "{err:?}");

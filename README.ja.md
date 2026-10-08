@@ -1,4 +1,4 @@
-# pane-relay
+# agent-relay
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![herdr plugin](https://img.shields.io/badge/herdr-plugin-8ec07c)](https://herdr.dev/plugins/)
@@ -77,9 +77,9 @@ AIのセッション履歴（Claude Code は `~/.claude/projects`、Codex は `~
 ## インストール
 
 ```sh
-git clone <このリポジトリ> pane-relay
-cd pane-relay
-sh scripts/build.sh      # bin/pane-relay を作ります
+git clone <このリポジトリ> agent-relay
+cd agent-relay
+sh scripts/build.sh      # bin/agent-relay を作ります
 herdr plugin link .
 ```
 
@@ -89,7 +89,7 @@ herdr plugin link .
 [[keys.command]]
 key = "prefix+h"
 type = "plugin_action"
-command = "abroller666.pane-relay.open"
+command = "abroller666.agent-relay.open"
 description = "hand the last answer to another pane"
 ```
 

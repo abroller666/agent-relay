@@ -1,8 +1,8 @@
 //! Herdr plugin entry points.
 //!
-//! - `pane-relay open` (the plugin action) fixes the focused pane as the
+//! - `agent-relay open` (the plugin action) fixes the focused pane as the
 //!   source, saves that for this launch and opens the popup.
-//! - `pane-relay` is the popup: it reads the source's last answer, lets the
+//! - `agent-relay` is the popup: it reads the source's last answer, lets the
 //!   user pick the target and type an instruction, and sends it once.
 
 use std::io::{Read, Write};
@@ -14,16 +14,16 @@ use std::time::Duration;
 use nix::sys::termios::{self, FlushArg, SetArg, Termios};
 use serde_json::json;
 
-use pane_relay::adapters::DefaultAdapters;
-use pane_relay::config::Config;
-use pane_relay::handoff::HandoffService;
-use pane_relay::herdr::{HerdrApi, HerdrClient};
-use pane_relay::state::{self, PopupState};
-use pane_relay::ui::{Flow, LiveService, Popup, Screen};
+use agent_relay::adapters::DefaultAdapters;
+use agent_relay::config::Config;
+use agent_relay::handoff::HandoffService;
+use agent_relay::herdr::{HerdrApi, HerdrClient};
+use agent_relay::state::{self, PopupState};
+use agent_relay::ui::{Flow, LiveService, Popup, Screen};
 
 /// Popup width, as in herdr-plugin.toml.
 const POPUP_WIDTH: &str = "60%";
-const OP_ENV: &str = "PANE_RELAY_OP";
+const OP_ENV: &str = "AGENT_RELAY_OP";
 /// How long to wait for the rest of a split escape sequence before taking
 /// it as a lone Esc.
 const ESCAPE_TIMEOUT_MS: i32 = 50;
@@ -32,7 +32,7 @@ fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some("open") {
         if let Err(e) = open() {
-            eprintln!("pane-relay: {e}");
+            eprintln!("agent-relay: {e}");
             std::process::exit(1);
         }
         return;
@@ -48,7 +48,7 @@ fn main() {
 
 fn state_dir() -> PathBuf {
     let base = std::env::var_os("HERDR_PLUGIN_STATE_DIR").map_or_else(
-        || std::env::temp_dir().join(format!("pane-relay-{}", unsafe { nix::libc::getuid() })),
+        || std::env::temp_dir().join(format!("agent-relay-{}", unsafe { nix::libc::getuid() })),
         PathBuf::from,
     );
     base.join("popups")
@@ -252,7 +252,7 @@ fn readable_within(ms: i32) -> bool {
 /// before it can be read.
 fn fail(msg: &str) -> ! {
     print(&format!(
-        "\x1b[2J\x1b[H\x1b[31mpane-relay: {msg}\x1b[0m\r\n\x1b[2mpress any key to close\x1b[0m"
+        "\x1b[2J\x1b[H\x1b[31magent-relay: {msg}\x1b[0m\r\n\x1b[2mpress any key to close\x1b[0m"
     ));
     let _ = std::io::stdin().read(&mut [0u8; 1]);
     std::process::exit(1);
