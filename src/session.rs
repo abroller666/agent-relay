@@ -34,25 +34,23 @@ pub fn binding_from_agent(info: &Value, server_key: &str) -> Result<PaneBinding,
         } else {
             agent_name
         };
-        return Err(HandoffError::UnsupportedAgent(format!(
-            "{pane_id}: {shown}"
-        )));
+        return Err(HandoffError::UnsupportedAgent(shown.to_string()));
     };
     let Some(session) = info.get("agent_session").filter(|s| !s.is_null()) else {
-        return Err(HandoffError::SessionUnavailable(format!(
-            "{pane_id}: check the Herdr integration and restart the session"
-        )));
+        return Err(HandoffError::SessionUnavailable(
+            "check the Herdr integration and restart the session".to_string(),
+        ));
     };
     let s = |key: &str| session.get(key).and_then(Value::as_str).unwrap_or_default();
     let expected_source = format!("herdr:{}", agent.herdr_name());
     if s("source") != expected_source || s("agent") != agent.herdr_name() {
-        return Err(HandoffError::SessionUnavailable(format!(
-            "{pane_id}: the session reference is not from the current agent"
-        )));
+        return Err(HandoffError::SessionUnavailable(
+            "the session reference is not from the current agent".to_string(),
+        ));
     }
     if s("kind") != "id" {
         return Err(HandoffError::SessionUnavailable(format!(
-            "{pane_id}: unsupported session reference ({})",
+            "unsupported session reference ({})",
             s("kind")
         )));
     }

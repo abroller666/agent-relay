@@ -52,7 +52,7 @@ struct FakeService {
     sends: RefCell<Vec<(String, String)>>,
     send_result: RefCell<Result<SendOutcome, HandoffError>>,
     prepares: RefCell<usize>,
-    source_label: RefCell<Option<String>>,
+    source_name: RefCell<Option<String>>,
 }
 
 impl FakeService {
@@ -62,7 +62,7 @@ impl FakeService {
             sends: RefCell::new(Vec::new()),
             send_result: RefCell::new(Ok(SendOutcome::Accepted)),
             prepares: RefCell::new(0),
-            source_label: RefCell::new(None),
+            source_name: RefCell::new(None),
         }
     }
     fn sent(&self) -> usize {
@@ -86,13 +86,14 @@ impl PopupService for FakeService {
             .push((target.pane_id.clone(), instruction.to_string()));
         self.send_result.borrow().clone()
     }
-    fn pane_label(&self, _pane: &PaneBinding) -> Option<String> {
-        self.source_label.borrow().clone()
+    fn display_name(&self, _pane: &PaneBinding) -> Option<String> {
+        self.source_name.borrow().clone()
     }
     fn targets(&self, _source: &PaneBinding) -> Result<Vec<TargetRow>, HandoffError> {
         let row = |pane: &str, agent, ok: bool| TargetRow {
             pane_id: pane.into(),
             label: format!("title of {}", &pane[3..]),
+            name: format!("Codex ~/dir-{}", &pane[3..]),
             agent: "codex".into(),
             status: "idle".into(),
             binding: ok.then(|| binding(pane, agent, "01a118e3-a882-7d10-9675-afffb81169d9")),
@@ -349,18 +350,29 @@ fn stale_state_files_are_swept() {
 }
 
 #[test]
-fn picker_rows_show_pane_ids() {
+fn screens_do_not_show_pane_ids() {
     let svc = FakeService::new();
+    *svc.source_name.borrow_mut() = Some("Claude Code ~/work".into());
     let mut p = Popup::new(PopupState::new("op1", Some(source())), &svc);
+    let mut screens = vec![p.render(120, 20)];
     p.load();
-    let screen = p.render(100, 20);
-    for pane in ["w1:pB", "w1:pC", "w1:pD"] {
-        assert!(
-            screen
-                .lines()
-                .any(|l| l.contains(pane) && l.contains("codex")),
-            "{pane} missing from:\n{screen}"
-        );
+    screens.push(p.render(120, 20));
+    p.feed(b"2");
+    p.feed(b"\r"); // refused, with a message naming the pane
+    screens.push(p.render(120, 20));
+    p.feed(b"1");
+    p.feed(b"\r");
+    let editor = p.render(120, 20);
+    assert!(
+        plain(&editor).contains("Claude Code ~/work → Codex ~/dir-pB"),
+        "{editor}"
+    );
+    screens.push(editor);
+    p.feed(b"go");
+    p.feed(b"\r");
+    screens.push(p.render(120, 20));
+    for screen in screens {
+        assert!(!screen.contains("w1:p"), "{screen}");
     }
 }
 
@@ -426,17 +438,57 @@ fn error_messages_are_english() {
 }
 
 #[test]
-fn picker_names_the_source_by_its_pane_name() {
+fn picker_names_the_source() {
     let svc = FakeService::new();
     let mut p = Popup::new(PopupState::new("op1", Some(source())), &svc);
     p.load();
     let header = p.render(120, 20);
-    assert!(header.contains("from Claude Code w1:pA"), "{header}");
+    assert!(header.contains("(from Claude Code)"), "{header}");
 
-    *svc.source_label.borrow_mut() = Some("api server".into());
+    *svc.source_name.borrow_mut() = Some("api server".into());
     let mut p = Popup::new(PopupState::new("op1", Some(source())), &svc);
     p.load();
     let header = p.render(120, 20);
-    assert!(header.contains("from api server"), "{header}");
-    assert!(!header.contains("from Claude Code"), "{header}");
+    assert!(header.contains("(from api server)"), "{header}");
+}
+
+/// The visible text of a screen line, without escape sequences.
+fn plain(line: &str) -> String {
+    let mut out = String::new();
+    let mut chars = line.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            for c in chars.by_ref() {
+                if c.is_ascii_alphabetic() || c == '~' {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[test]
+fn long_names_keep_both_ends_of_the_header_visible() {
+    let svc = FakeService::new();
+    *svc.source_name.borrow_mut() =
+        Some("Claude Code ~/very/long/path/aaaaaaaaaaaa/bbbbbbbbbbbb/project-a".into());
+    let mut p = editing(&svc);
+    let screen = p.render(70, 20);
+    let header = plain(screen.lines().next().unwrap());
+    let width = unicode_width::UnicodeWidthStr::width(header.as_str());
+    assert!(width <= 70, "{width}: {header}");
+    // The agent stays; the path is cut at the front.
+    assert!(header.contains("Claude Code …"), "{header}");
+    assert!(header.contains("project-a"), "{header}");
+    assert!(header.contains("→ Codex ~/dir-pB"), "{header}");
+    assert!(header.contains("answer"), "{header}");
+
+    p.feed(b"\x1d");
+    let screen = p.render(50, 20);
+    let header = plain(screen.lines().next().unwrap());
+    assert!(header.contains("(from Claude Code …"), "{header}");
+    assert!(header.contains("project-a)"), "{header}");
 }

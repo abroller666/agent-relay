@@ -76,6 +76,8 @@ pub struct PaneSummary {
     pub agent_status: Option<String>,
     #[serde(default)]
     pub cwd: Option<String>,
+    #[serde(default)]
+    pub foreground_cwd: Option<String>,
 }
 
 /// Where a pane sits on screen, from `pane.layout`.
@@ -260,7 +262,7 @@ impl HerdrApi for HerdrClient {
             self.call("agent.get", json!({"target": pane_id}))
                 .map_err(|e| match e {
                     CallError::Rejected { code, .. } if code == "agent_not_found" => {
-                        HandoffError::UnsupportedAgent(format!("{pane_id}: no agent running"))
+                        HandoffError::UnsupportedAgent("no agent running".into())
                     }
                     other => other.into_herdr(),
                 })?;

@@ -103,20 +103,18 @@ impl<'a> HandoffService<'a> {
         let now = match self.herdr.agent(&target.pane_id) {
             Ok(now) => now,
             Err(HandoffError::UnsupportedAgent(_) | HandoffError::SessionUnavailable(_)) => {
-                return Err(HandoffError::TargetChanged(format!(
-                    "the agent in {} was replaced",
-                    target.pane_id
-                )));
+                return Err(HandoffError::TargetChanged(
+                    "the target agent was replaced".into(),
+                ));
             }
             Err(e) => return Err(e),
         };
         if !now.binding.same_occupant(target) {
-            return Err(HandoffError::TargetChanged(format!(
-                "the agent in {} was replaced",
-                target.pane_id
-            )));
+            return Err(HandoffError::TargetChanged(
+                "the target agent was replaced".into(),
+            ));
         }
-        require_ready(&now)?;
+        require_ready(&now, "the target")?;
 
         let prompt = build_prompt(instruction, answer)?;
         if prompt.len() > self.config.max_payload_bytes {
@@ -149,12 +147,13 @@ impl<'a> HandoffService<'a> {
                 "the source agent was replaced".into(),
             ));
         }
-        require_ready(&now)?;
+        require_ready(&now, "the source")?;
         Ok(now)
     }
 }
 
-fn require_ready(agent: &AgentSnapshot) -> Result<(), HandoffError> {
+/// `role`: "the source" or "the target", for the message.
+fn require_ready(agent: &AgentSnapshot, role: &str) -> Result<(), HandoffError> {
     if agent.is_ready() {
         return Ok(());
     }
@@ -163,8 +162,5 @@ fn require_ready(agent: &AgentSnapshot) -> Result<(), HandoffError> {
     } else {
         agent.agent_status.as_str()
     };
-    Err(HandoffError::AgentNotReady(format!(
-        "{} is {state}",
-        agent.binding.pane_id
-    )))
+    Err(HandoffError::AgentNotReady(format!("{role} is {state}")))
 }

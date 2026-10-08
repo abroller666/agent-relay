@@ -46,6 +46,9 @@ pub enum Flow {
 pub struct TargetRow {
     pub pane_id: String,
     pub label: String,
+    /// How the pane is named in headers: its Herdr name, else the agent
+    /// and working directory.
+    pub name: String,
     pub agent: String,
     pub status: String,
     /// Present when the pane can receive the prompt.
@@ -64,8 +67,8 @@ pub trait PopupService {
     ) -> Result<SendOutcome, HandoffError>;
     /// The other panes of the source's tab, in screen order.
     fn targets(&self, source: &PaneBinding) -> Result<Vec<TargetRow>, HandoffError>;
-    /// The name given to the pane in Herdr (`herdr pane rename`), if any.
-    fn pane_label(&self, _pane: &PaneBinding) -> Option<String> {
+    /// How to name `pane` on screen (see `display_name`), if known.
+    fn display_name(&self, _pane: &PaneBinding) -> Option<String> {
         None
     }
     /// Called right before a send, which can take a while.
@@ -79,8 +82,9 @@ pub struct Popup<'a> {
     editor: Editor,
     picker: Picker,
     rows: Vec<TargetRow>,
-    /// The source pane's name in Herdr, read with the target list.
-    source_label: Option<String>,
+    /// How the source and the target are named on screen.
+    source_display: Option<String>,
+    target_display: Option<String>,
     message: Option<Message>,
     /// Input typed while sending is dropped; set when the caller should
     /// also discard what is still buffered in the terminal.
@@ -116,7 +120,8 @@ impl<'a> Popup<'a> {
             editor,
             picker: Picker::default(),
             rows: Vec::new(),
-            source_label: None,
+            source_display: None,
+            target_display: None,
             message,
             discard_input: false,
             just_sent: false,
@@ -154,6 +159,7 @@ impl<'a> Popup<'a> {
         if self.state.answer.is_none() {
             self.reload_answer();
         }
+        self.name_source();
         if self.state.target.is_some() {
             self.state.screen = Screen::Editing;
         } else {
@@ -165,10 +171,17 @@ impl<'a> Popup<'a> {
     /// the answer on another thread to keep the popup responsive).
     pub fn loaded(&mut self, result: Result<AnswerSnapshot, HandoffError>) {
         self.apply_answer(result);
+        self.name_source();
         if self.state.target.is_some() {
             self.state.screen = Screen::Editing;
         } else {
             self.open_picker();
+        }
+    }
+
+    fn name_source(&mut self) {
+        if let Some(source) = &self.state.source {
+            self.source_display = self.svc.display_name(source);
         }
     }
 
@@ -204,7 +217,6 @@ impl<'a> Popup<'a> {
         let Some(source) = self.state.source.clone() else {
             return;
         };
-        self.source_label = self.svc.pane_label(&source);
         match self.svc.targets(&source) {
             Ok(rows) => self.rows = rows,
             Err(e) => {
@@ -282,6 +294,7 @@ impl<'a> Popup<'a> {
                 match &row.binding {
                     Some(binding) => {
                         self.state.target = Some(binding.clone());
+                        self.target_display = Some(row.name.clone());
                         self.state.screen = Screen::Editing;
                         if self.state.answer.is_some() {
                             self.message = None;
@@ -291,7 +304,7 @@ impl<'a> Popup<'a> {
                         self.message = Some(Message {
                             text: format!(
                                 "cannot send to {}: {}",
-                                row.pane_id,
+                                row.name,
                                 row.unavailable.as_deref().unwrap_or("not a target")
                             ),
                             error: true,
@@ -438,17 +451,19 @@ impl<'a> Popup<'a> {
     }
 
     fn source_name(&self) -> String {
-        self.state
-            .source
-            .as_ref()
-            .map_or_else(|| "?".into(), pane_name)
+        match (&self.source_display, &self.state.source) {
+            (Some(name), _) => name.clone(),
+            (None, Some(b)) => b.agent.display_name().into(),
+            (None, None) => "?".into(),
+        }
     }
 
     fn target_name(&self) -> String {
-        self.state
-            .target
-            .as_ref()
-            .map_or_else(|| "(none)".into(), pane_name)
+        match (&self.target_display, &self.state.target) {
+            (Some(name), Some(_)) => name.clone(),
+            (_, Some(b)) => b.agent.display_name().into(),
+            (_, None) => "(none)".into(),
+        }
     }
 
     fn draw_picker(&mut self, lines: &mut Vec<String>, cols: usize, rows: usize) {
@@ -456,9 +471,10 @@ impl<'a> Popup<'a> {
             "{}  {}",
             bold(&format!(
                 "Choose the target (from {})",
-                self.source_label
-                    .clone()
-                    .unwrap_or_else(|| self.source_name())
+                fit_name(
+                    &self.source_name(),
+                    cols.saturating_sub("Choose the target (from )".width())
+                )
             )),
             dim("↑↓/jk: move  1-9/␣: pick  ⏎: choose  Esc/C-g: quit")
         ));
@@ -487,8 +503,8 @@ impl<'a> Popup<'a> {
                 .map(|r| format!("  ✕ {r}"))
                 .unwrap_or_default();
             let text = format!(
-                "{mark} {number} {label}{pad}  {:<8} {:<8} {:<7}{reason}",
-                row.pane_id, row.agent, row.status
+                "{mark} {number} {label}{pad}  {:<8} {:<7}{reason}",
+                row.agent, row.status
             );
             let text = fit(&text, cols);
             lines.push(match (i == self.picker.cursor, row.binding.is_some()) {
@@ -509,19 +525,22 @@ impl<'a> Popup<'a> {
         cols: usize,
         rows: usize,
     ) -> Option<(usize, usize)> {
-        let status = match &self.state.answer {
-            Some(a) => green(&format!("answer {} ✓", size(a.text.len()))),
-            None => red("no answer"),
+        let (status, styled) = match &self.state.answer {
+            Some(a) => {
+                let s = format!("answer {} ✓", size(a.text.len()));
+                (s.clone(), green(&s))
+            }
+            None => ("no answer".to_string(), red("no answer")),
         };
-        lines.push(fit_styled(
-            &format!(
-                "{} {} → {}  {status}",
-                bold("pane-relay"),
-                self.source_name(),
-                self.target_name()
-            ),
-            cols,
-        ));
+        // Long names are cut at the front, so the ends of paths, the target
+        // and the answer state stay on screen.
+        let fixed = " → ".width() + 2 + status.width();
+        let (from, to) = share(
+            &self.source_name(),
+            &self.target_name(),
+            cols.saturating_sub(fixed),
+        );
+        lines.push(format!("{} → {}  {styled}", bold(&from), bold(&to)));
         // Footer: the message, or the keys.
         let footer = match (&self.message, self.state.screen) {
             (_, Screen::Sending) => yellow("sending…"),
@@ -570,11 +589,6 @@ impl<'a> Popup<'a> {
     }
 }
 
-/// "Claude Code w1:p4E".
-fn pane_name(b: &PaneBinding) -> String {
-    format!("{} {}", b.agent.display_name(), b.pane_id)
-}
-
 fn size(bytes: usize) -> String {
     if bytes < 1024 {
         format!("{bytes}B")
@@ -613,9 +627,60 @@ fn fit(s: &str, width: usize) -> String {
     out
 }
 
-/// Styled text is clipped by the terminal (autowrap is off).
-fn fit_styled(s: &str, _width: usize) -> String {
-    s.to_string()
+/// `s` cut to `width` columns from the front, starting with "…" when cut.
+fn fit_left(s: &str, width: usize) -> String {
+    if s.width() <= width {
+        return s.to_string();
+    }
+    let mut kept = Vec::new();
+    let mut used = 0;
+    for c in s.chars().rev() {
+        let w = c.width().unwrap_or(0);
+        if used + w + 1 > width {
+            break;
+        }
+        used += w;
+        kept.push(c);
+    }
+    std::iter::once('…').chain(kept.into_iter().rev()).collect()
+}
+
+/// A name cut to `width` columns. In "Agent path" names the agent stays
+/// and the path is cut at the front; other names are cut at the front.
+fn fit_name(s: &str, width: usize) -> String {
+    if s.width() <= width {
+        return s.to_string();
+    }
+    if let Some(at) = s.find(" /").or_else(|| s.find(" ~")) {
+        let (agent, path) = (&s[..=at], &s[at + 1..]);
+        // Keep at least a few columns of the path.
+        if agent.width() + 6 <= width {
+            return format!("{agent}{}", fit_left(path, width - agent.width()));
+        }
+        // No room for the path: the agent alone says more than a path tail.
+        if agent.trim_end().width() <= width {
+            return agent.trim_end().to_string();
+        }
+    }
+    fit_left(s, width)
+}
+
+/// `a` and `b` cut from the front to share `width` columns: each gets half,
+/// and one that needs less leaves the rest to the other.
+fn share(a: &str, b: &str, width: usize) -> (String, String) {
+    let (wa, wb) = (a.width(), b.width());
+    if wa + wb <= width {
+        return (a.to_string(), b.to_string());
+    }
+    let half = width / 2;
+    let (ka, kb) = if wa <= half {
+        (wa, width - wa)
+    } else if wb <= half {
+        (width - wb, wb)
+    } else {
+        (half, width - half)
+    };
+    (fit_name(a, ka), fit_name(b, kb))
 }
 
 fn bold(s: &str) -> String {
@@ -671,14 +736,10 @@ impl PopupService for LiveService<'_> {
         let _ = std::io::Write::flush(&mut out);
     }
 
-    fn pane_label(&self, pane: &PaneBinding) -> Option<String> {
+    fn display_name(&self, pane: &PaneBinding) -> Option<String> {
         let panes = self.herdr.list_panes().ok()?;
-        let label = panes
-            .into_iter()
-            .find(|p| p.pane_id == pane.pane_id)?
-            .label?;
-        let label = label.trim();
-        (!label.is_empty()).then(|| label.to_string())
+        let p = panes.into_iter().find(|p| p.pane_id == pane.pane_id)?;
+        Some(summary_name(&p))
     }
 
     fn targets(&self, source: &PaneBinding) -> Result<Vec<TargetRow>, HandoffError> {
@@ -710,6 +771,7 @@ impl LiveService<'_> {
         let mut row = TargetRow {
             pane_id: p.pane_id.clone(),
             label: pane_label(p),
+            name: summary_name(p),
             agent: agent.clone(),
             status: p.agent_status.clone().unwrap_or_default(),
             binding: None,
@@ -746,15 +808,50 @@ impl LiveService<'_> {
     }
 }
 
-/// The pane's name, else its terminal title, else its id.
+/// `display_name` for a pane as `pane.list` reports it.
+fn summary_name(p: &PaneSummary) -> String {
+    let agent = p.agent.as_deref().unwrap_or_default();
+    let agent = match AgentKind::from_herdr(agent) {
+        Some(kind) => kind.display_name(),
+        None => agent,
+    };
+    let cwd = p.foreground_cwd.as_deref().or(p.cwd.as_deref());
+    let home = std::env::var("HOME").unwrap_or_default();
+    display_name(p.label.as_deref(), agent, cwd, &home)
+}
+
+/// The pane's Herdr name if it has one, else the agent and the working
+/// directory (home shown as `~`).
+pub fn display_name(label: Option<&str>, agent: &str, cwd: Option<&str>, home: &str) -> String {
+    if let Some(label) = label.map(str::trim).filter(|l| !l.is_empty()) {
+        return label.to_string();
+    }
+    let cwd = cwd.map(|c| tilde(c, home)).unwrap_or_default();
+    [agent, cwd.as_str()]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `path` with a leading `home` replaced by `~`.
+fn tilde(path: &str, home: &str) -> String {
+    match path.strip_prefix(home) {
+        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
+            format!("~{rest}")
+        }
+        _ => path.to_string(),
+    }
+}
+
+/// The pane's name, else its terminal title, else its working directory.
 fn pane_label(p: &PaneSummary) -> String {
     [&p.label, &p.terminal_title_stripped]
         .into_iter()
         .flatten()
         .map(|s| s.trim())
         .find(|s| !s.is_empty())
-        .unwrap_or(&p.pane_id)
-        .to_string()
+        .map_or_else(|| summary_name(p), str::to_string)
 }
 
 #[cfg(test)]
@@ -766,6 +863,33 @@ mod tests {
         assert_eq!(fit("abcdef", 6), "abcdef");
         assert_eq!(fit("abcdefg", 6), "abcde…");
         assert_eq!(fit("日本語です", 6), "日本…");
+    }
+
+    #[test]
+    fn names_are_cut_at_the_front() {
+        assert_eq!(fit_left("~/dev/app", 9), "~/dev/app");
+        assert_eq!(fit_left("~/dev/app", 6), "…v/app");
+        assert_eq!(share("aaaa", "bb", 6), ("aaaa".into(), "bb".into()));
+        assert_eq!(share("aaaaaaaa", "bb", 6), ("…aaa".into(), "bb".into()));
+        assert_eq!(share("aaaaaa", "bbbbbb", 6), ("…aa".into(), "…bb".into()));
+        assert_eq!(fit_name("Codex ~/dev/long/app", 14), "Codex …ong/app");
+        assert_eq!(fit_name("Codex /a/b", 4), "…a/b");
+        assert_eq!(fit_name("Codex ~/dev/long/app", 9), "Codex");
+    }
+
+    #[test]
+    fn display_name_prefers_the_pane_name() {
+        let home = "/Users/me";
+        assert_eq!(display_name(Some("api"), "Codex", Some("/x"), home), "api");
+        assert_eq!(
+            display_name(Some("  "), "Claude Code", Some("/Users/me/dev/app"), home),
+            "Claude Code ~/dev/app"
+        );
+        assert_eq!(
+            display_name(None, "Codex", Some("/Users/meg"), home),
+            "Codex /Users/meg"
+        );
+        assert_eq!(display_name(None, "Codex", None, home), "Codex");
     }
 
     #[test]
