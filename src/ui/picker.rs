@@ -1,5 +1,6 @@
 //! Choosing the one target pane. Keys follow broadcast-pane's picker:
-//! ↑↓ / Ctrl+P Ctrl+N / k j move, Space or 1-9 pick a row, Enter confirms.
+//! ↑↓ / Ctrl+P Ctrl+N / k j move, Space or 1-9 pick a row, Enter confirms,
+//! Ctrl+] goes back to the instruction, Esc / Ctrl+G / Ctrl+Q close.
 
 use std::ops::Range;
 
@@ -51,8 +52,8 @@ impl Picker {
                 }
             }
             Key::Enter { .. } if rows > 0 => return Pick::Confirm(self.cursor),
-            Key::Esc | Key::Pick => return Pick::Back,
-            Key::Quit => return Pick::Quit,
+            Key::Pick => return Pick::Back,
+            Key::Quit | Key::Esc => return Pick::Quit,
             _ => {}
         }
         Pick::Stay
@@ -93,6 +94,7 @@ mod tests {
         assert_eq!(p.handle(&Key::Enter { alone: true }, 0), Pick::Stay);
         assert_eq!(p.handle(&Key::Pick, 4), Pick::Back);
         assert_eq!(p.handle(&Key::Quit, 4), Pick::Quit);
+        assert_eq!(p.handle(&Key::Esc, 4), Pick::Quit);
     }
 
     #[test]

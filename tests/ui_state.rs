@@ -241,6 +241,29 @@ fn quit_keys_close_without_sending() {
 }
 
 #[test]
+fn esc_closes_from_the_editor_and_the_picker() {
+    let svc = FakeService::new();
+    let mut p = editing(&svc);
+    p.feed(b"go");
+    // A lone Esc is settled once no more bytes follow it.
+    assert_eq!(p.feed(b"\x1b"), Flow::Continue);
+    assert_eq!(p.expire(), Flow::Quit);
+    assert_eq!(svc.sent(), 0);
+
+    let mut p = editing(&svc);
+    p.feed(b"\x1d");
+    assert_eq!(p.screen(), Screen::Selecting);
+    p.feed(b"\x1b");
+    assert_eq!(p.expire(), Flow::Quit);
+
+    // Escape sequences (arrows, Alt+key) are not Esc.
+    let mut p = editing(&svc);
+    assert_eq!(p.feed(b"\x1b[D"), Flow::Continue);
+    assert_eq!(p.feed(b"\x1bx"), Flow::Continue);
+    assert_eq!(svc.sent(), 0);
+}
+
+#[test]
 fn failed_load_keeps_the_instruction_and_can_retry() {
     let svc = FakeService::new();
     let mut p = editing(&svc);

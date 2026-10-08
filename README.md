@@ -14,7 +14,7 @@ Supported agents: Claude Code and Codex, on either side.
 2. A popup opens and reads A's last answer from its session transcript.
 3. Pick B from the other panes of the tab. Panes that cannot receive (busy, waiting for approval, no registered session…) are listed with the reason and cannot be picked.
    ↑↓ / `Ctrl+p` `Ctrl+n` / `j` `k` move, `Space` or `1`–`9` pick, `Enter` confirms.
-4. Type the instruction. `Enter` sends, `Alt+Enter` inserts a line break, `Ctrl+]` picks B again, `Ctrl+r` re-reads the answer, `Ctrl+g` / `Ctrl+q` quit.
+4. Type the instruction. `Enter` sends, `Alt+Enter` inserts a line break, `Ctrl+]` picks B again, `Ctrl+r` re-reads the answer, `Esc` / `Ctrl+g` / `Ctrl+q` quit (in the target list too).
    Committing IME input or pasting several lines never sends.
 5. Right before sending, both panes are checked again (same agent session, idle or done) and the answer is read again. If A's answer changed, nothing is sent: the new answer is loaded, your instruction is kept, and you decide again.
 6. B receives one prompt, submitted once: your instruction, a short label, and A's answer verbatim between fence lines that do not occur in it.

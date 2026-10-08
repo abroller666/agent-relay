@@ -233,7 +233,7 @@ impl<'a> Popup<'a> {
             match self.state.screen {
                 Screen::Sent | Screen::DeliveryUnknown | Screen::Fatal => return Flow::Quit,
                 Screen::Loading | Screen::Sending => {
-                    if key == Key::Quit {
+                    if matches!(key, Key::Quit | Key::Esc) {
                         return Flow::Quit;
                     }
                 }
@@ -318,7 +318,7 @@ impl<'a> Popup<'a> {
             }
             Key::Reload => self.reload_answer(),
             Key::Quit => return Flow::Quit,
-            Key::Esc => {}
+            Key::Esc => return Flow::Quit,
         }
         Flow::Continue
     }
@@ -382,7 +382,7 @@ impl<'a> Popup<'a> {
                 lines.push(format!(
                     "{}  reading the answer…  {}",
                     bold("pane-relay"),
-                    dim("C-g: cancel")
+                    dim("Esc/C-g: cancel")
                 ));
                 lines.push(dim(&format!("from {}", self.source_name())));
             }
@@ -447,7 +447,7 @@ impl<'a> Popup<'a> {
         lines.push(format!(
             "{}  {}",
             bold(&format!("Choose the target (from {})", self.source_name())),
-            dim("↑↓/jk: move  1-9/␣: pick  ⏎: choose  C-g: quit")
+            dim("↑↓/jk: move  1-9/␣: pick  ⏎: choose  Esc/C-g: quit")
         ));
         let space = rows.saturating_sub(2).max(1);
         if self.rows.is_empty() {
@@ -515,7 +515,7 @@ impl<'a> Popup<'a> {
             (Some(m), _) if m.error => red(&fit(&m.text, cols)),
             (Some(m), _) => yellow(&fit(&m.text, cols)),
             (None, _) => dim(&fit(
-                "⏎: send  M-⏎: newline  C-]: target  C-r: reload  C-g: quit",
+                "⏎: send  M-⏎: newline  C-]: target  C-r: reload  Esc/C-g: quit",
                 cols,
             )),
         };
