@@ -18,6 +18,7 @@ use crate::error::HandoffError;
 use crate::handoff::{HandoffService, SendOutcome};
 use crate::herdr::{HerdrApi, PaneSummary};
 use crate::model::{AgentKind, AnswerSnapshot, PaneBinding};
+use crate::names::summary_name;
 use crate::state::PopupState;
 use editor::Editor;
 use keys::{Decoder, Key};
@@ -49,6 +50,8 @@ pub struct TargetRow {
     /// How the pane is named in headers: its Herdr name, else the agent
     /// and working directory.
     pub name: String,
+    /// The workspace the pane is in, by its label.
+    pub space: String,
     pub agent: String,
     pub status: String,
     /// Present when the pane can receive the prompt.
@@ -482,6 +485,7 @@ impl<'a> Popup<'a> {
         if self.rows.is_empty() {
             lines.push(dim("no other panes in this tab"));
         }
+        let many_spaces = self.rows.iter().any(|r| r.space != self.rows[0].space);
         let shown = self.picker.window(self.rows.len(), space);
         for i in shown {
             let row = &self.rows[i];
@@ -502,8 +506,15 @@ impl<'a> Popup<'a> {
                 .as_deref()
                 .map(|r| format!("  ✕ {r}"))
                 .unwrap_or_default();
+            // The workspace column only when the list spans several.
+            let space = if many_spaces {
+                let s = fit(&row.space, 12);
+                format!("{s}{}  ", " ".repeat(12usize.saturating_sub(s.width())))
+            } else {
+                String::new()
+            };
             let text = format!(
-                "{mark} {number} {label}{pad}  {:<8} {:<7}{reason}",
+                "{mark} {number} {space}{label}{pad}  {:<8} {:<7}{reason}",
                 row.agent, row.status
             );
             let text = fit(&text, cols);
@@ -749,9 +760,17 @@ impl PopupService for LiveService<'_> {
             .layout(&source.pane_id)
             .map(|l| l.panes)
             .unwrap_or_default();
-        let mut panes: Vec<&PaneSummary> = panes
+        let spaces = self.herdr.workspace_labels().unwrap_or_default();
+        let source_space = panes
             .iter()
-            .filter(|p| p.tab_id == source.tab_id && p.pane_id != source.pane_id)
+            .find(|p| p.pane_id == source.pane_id)
+            .map(|p| p.workspace_id.clone())
+            .unwrap_or_default();
+        // Every pane but the source, in every workspace.
+        let mut panes: Vec<(usize, &PaneSummary)> = panes
+            .iter()
+            .filter(|p| p.pane_id != source.pane_id)
+            .enumerate()
             .collect();
         let place = |p: &PaneSummary| {
             places
@@ -759,9 +778,36 @@ impl PopupService for LiveService<'_> {
                 .find(|pl| pl.pane_id == p.pane_id)
                 .map(|pl| (pl.rect.y, pl.rect.x))
         };
-        // Reading order on screen; panes missing from the layout last.
-        panes.sort_by_key(|p| place(p).map_or((1, 0, 0), |(y, x)| (0, y, x)));
-        Ok(panes.into_iter().map(|p| self.row(p)).collect())
+        let space_order = |p: &PaneSummary| {
+            spaces
+                .iter()
+                .position(|(id, _)| *id == p.workspace_id)
+                .unwrap_or(usize::MAX)
+        };
+        // The source's tab first, in reading order on screen; then the rest
+        // of its workspace; then the other workspaces in Herdr's order.
+        panes.sort_by_key(|(i, p)| {
+            let group = if p.tab_id == source.tab_id {
+                0
+            } else if p.workspace_id == source_space {
+                1
+            } else {
+                2
+            };
+            let (y, x) = place(p).unwrap_or((u32::MAX, u32::MAX));
+            (group, if group == 2 { space_order(p) } else { 0 }, y, x, *i)
+        });
+        Ok(panes
+            .into_iter()
+            .map(|(_, p)| {
+                let mut row = self.row(p);
+                row.space = spaces
+                    .iter()
+                    .find(|(id, _)| *id == p.workspace_id)
+                    .map_or_else(|| p.workspace_id.clone(), |(_, label)| label.clone());
+                row
+            })
+            .collect())
     }
 }
 
@@ -772,6 +818,7 @@ impl LiveService<'_> {
             pane_id: p.pane_id.clone(),
             label: pane_label(p),
             name: summary_name(p),
+            space: String::new(),
             agent: agent.clone(),
             status: p.agent_status.clone().unwrap_or_default(),
             binding: None,
@@ -808,42 +855,6 @@ impl LiveService<'_> {
     }
 }
 
-/// `display_name` for a pane as `pane.list` reports it.
-fn summary_name(p: &PaneSummary) -> String {
-    let agent = p.agent.as_deref().unwrap_or_default();
-    let agent = match AgentKind::from_herdr(agent) {
-        Some(kind) => kind.display_name(),
-        None => agent,
-    };
-    let cwd = p.foreground_cwd.as_deref().or(p.cwd.as_deref());
-    let home = std::env::var("HOME").unwrap_or_default();
-    display_name(p.label.as_deref(), agent, cwd, &home)
-}
-
-/// The pane's Herdr name if it has one, else the agent and the working
-/// directory (home shown as `~`).
-pub fn display_name(label: Option<&str>, agent: &str, cwd: Option<&str>, home: &str) -> String {
-    if let Some(label) = label.map(str::trim).filter(|l| !l.is_empty()) {
-        return label.to_string();
-    }
-    let cwd = cwd.map(|c| tilde(c, home)).unwrap_or_default();
-    [agent, cwd.as_str()]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// `path` with a leading `home` replaced by `~`.
-fn tilde(path: &str, home: &str) -> String {
-    match path.strip_prefix(home) {
-        Some(rest) if !home.is_empty() && (rest.is_empty() || rest.starts_with('/')) => {
-            format!("~{rest}")
-        }
-        _ => path.to_string(),
-    }
-}
-
 /// The pane's name, else its terminal title, else its working directory.
 fn pane_label(p: &PaneSummary) -> String {
     [&p.label, &p.terminal_title_stripped]
@@ -875,21 +886,6 @@ mod tests {
         assert_eq!(fit_name("Codex ~/dev/long/app", 14), "Codex …ong/app");
         assert_eq!(fit_name("Codex /a/b", 4), "…a/b");
         assert_eq!(fit_name("Codex ~/dev/long/app", 9), "Codex");
-    }
-
-    #[test]
-    fn display_name_prefers_the_pane_name() {
-        let home = "/Users/me";
-        assert_eq!(display_name(Some("api"), "Codex", Some("/x"), home), "api");
-        assert_eq!(
-            display_name(Some("  "), "Claude Code", Some("/Users/me/dev/app"), home),
-            "Claude Code ~/dev/app"
-        );
-        assert_eq!(
-            display_name(None, "Codex", Some("/Users/meg"), home),
-            "Codex /Users/meg"
-        );
-        assert_eq!(display_name(None, "Codex", None, home), "Codex");
     }
 
     #[test]

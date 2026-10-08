@@ -67,6 +67,8 @@ pub struct PaneSummary {
     pub pane_id: String,
     pub tab_id: String,
     #[serde(default)]
+    pub workspace_id: String,
+    #[serde(default)]
     pub label: Option<String>,
     #[serde(default)]
     pub terminal_title_stripped: Option<String>,
@@ -114,6 +116,10 @@ pub trait HerdrApi {
     fn prompt(&self, pane_id: &str, text: &str) -> Result<(), HandoffError>;
     fn list_panes(&self) -> Result<Vec<PaneSummary>, HandoffError>;
     fn layout(&self, pane_id: &str) -> Result<Layout, HandoffError>;
+    /// (workspace id, label) of every workspace, in Herdr's order.
+    fn workspace_labels(&self) -> Result<Vec<(String, String)>, HandoffError> {
+        Ok(Vec::new())
+    }
 
     /// The agent in `pane_id` with its session binding.
     fn agent(&self, pane_id: &str) -> Result<AgentSnapshot, HandoffError> {
@@ -281,6 +287,22 @@ impl HerdrApi for HerdrClient {
             .map_err(CallError::into_herdr)?;
         serde_json::from_value(result["panes"].take())
             .map_err(|e| HandoffError::Herdr(format!("pane.list: {e}")))
+    }
+
+    fn workspace_labels(&self) -> Result<Vec<(String, String)>, HandoffError> {
+        let result = self
+            .call("workspace.list", json!({}))
+            .map_err(CallError::into_herdr)?;
+        Ok(result["workspaces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|w| {
+                let id = w["workspace_id"].as_str()?;
+                let label = w["label"].as_str().filter(|l| !l.trim().is_empty());
+                Some((id.to_string(), label.unwrap_or(id).to_string()))
+            })
+            .collect())
     }
 
     fn layout(&self, pane_id: &str) -> Result<Layout, HandoffError> {

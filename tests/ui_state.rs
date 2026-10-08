@@ -94,6 +94,7 @@ impl PopupService for FakeService {
             pane_id: pane.into(),
             label: format!("title of {}", &pane[3..]),
             name: format!("Codex ~/dir-{}", &pane[3..]),
+            space: "develop".into(),
             agent: "codex".into(),
             status: "idle".into(),
             binding: ok.then(|| binding(pane, agent, "01a118e3-a882-7d10-9675-afffb81169d9")),
@@ -491,4 +492,85 @@ fn long_names_keep_both_ends_of_the_header_visible() {
     let header = plain(screen.lines().next().unwrap());
     assert!(header.contains("(from Claude Code …"), "{header}");
     assert!(header.contains("project-a)"), "{header}");
+}
+
+mod live_targets {
+    use super::*;
+    use pane_relay::adapters::DefaultAdapters;
+    use pane_relay::config::Config;
+    use pane_relay::herdr::{HerdrApi, Layout, PaneSummary};
+    use pane_relay::ui::LiveService;
+    use serde_json::{Value, json};
+
+    /// Panes in two tabs of workspace w1 and in workspace w2.
+    struct Herdr;
+
+    fn pane(id: &str, tab: &str, agent: Option<&str>) -> PaneSummary {
+        PaneSummary {
+            pane_id: id.into(),
+            tab_id: tab.into(),
+            workspace_id: tab.split(':').next().unwrap().into(),
+            agent: agent.map(str::to_string),
+            agent_status: Some("idle".into()),
+            cwd: Some(format!("/srv/{}", &id[3..])),
+            ..Default::default()
+        }
+    }
+
+    impl HerdrApi for Herdr {
+        fn server_key(&self) -> String {
+            "/tmp/herdr.sock".into()
+        }
+        fn agent_info(&self, pane_id: &str) -> Result<Value, HandoffError> {
+            let tab = if pane_id == "w2:pD" { "w2:t1" } else { "w1:t1" };
+            Ok(json!({
+                "agent": "codex", "agent_status": "idle", "pane_id": pane_id,
+                "tab_id": tab, "terminal_id": format!("term-{pane_id}"),
+                "agent_session": {"source": "herdr:codex", "agent": "codex", "kind": "id",
+                                  "value": "01a118e3-a882-7d10-9675-afffb81169d9"},
+            }))
+        }
+        fn prompt(&self, _: &str, _: &str) -> Result<(), HandoffError> {
+            unreachable!()
+        }
+        fn list_panes(&self) -> Result<Vec<PaneSummary>, HandoffError> {
+            Ok(vec![
+                pane("w2:pD", "w2:t1", Some("codex")),
+                pane("w1:pC", "w1:t2", Some("codex")),
+                pane("w1:pA", "w1:t1", Some("claude")),
+                pane("w1:pB", "w1:t1", Some("codex")),
+            ])
+        }
+        fn layout(&self, _: &str) -> Result<Layout, HandoffError> {
+            Err(HandoffError::Herdr("no layout".into()))
+        }
+        fn workspace_labels(&self) -> Result<Vec<(String, String)>, HandoffError> {
+            Ok(vec![
+                ("w1".into(), "develop".into()),
+                ("w2".into(), "review".into()),
+            ])
+        }
+    }
+
+    #[test]
+    fn every_other_pane_of_every_workspace_is_a_target() {
+        let config = Config::defaults(std::path::Path::new("/home/user"));
+        let svc = LiveService {
+            herdr: &Herdr,
+            adapters: &DefaultAdapters,
+            config: &config,
+        };
+        let rows = svc.targets(&source()).unwrap();
+        let ids: Vec<&str> = rows.iter().map(|r| r.pane_id.as_str()).collect();
+        // The source's tab first, then its workspace, then the others.
+        assert_eq!(ids, ["w1:pB", "w1:pC", "w2:pD"]);
+        assert_eq!(rows[2].space, "review");
+        assert!(rows.iter().all(|r| r.binding.is_some()));
+
+        let mut p = Popup::new(PopupState::new("op1", Some(source())), &svc);
+        p.load();
+        let screen = p.render(120, 20);
+        assert!(screen.contains("review"), "{screen}");
+        assert!(screen.contains("develop"), "{screen}");
+    }
 }

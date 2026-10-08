@@ -11,6 +11,7 @@ pub mod error;
 pub mod handoff;
 pub mod herdr;
 pub mod model;
+pub mod names;
 pub mod prompt;
 pub mod session;
 pub mod state;

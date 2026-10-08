@@ -4,7 +4,12 @@
 use crate::error::HandoffError;
 use crate::model::AnswerSnapshot;
 
-pub fn build_prompt(instruction: &str, answer: &AnswerSnapshot) -> Result<String, HandoffError> {
+/// `source_name` is how the source pane is named on screen (see `names`).
+pub fn build_prompt(
+    instruction: &str,
+    answer: &AnswerSnapshot,
+    source_name: &str,
+) -> Result<String, HandoffError> {
     if has_control(instruction) {
         return Err(HandoffError::InvalidInstruction(
             "it contains terminal control characters".into(),
@@ -23,10 +28,14 @@ pub fn build_prompt(instruction: &str, answer: &AnswerSnapshot) -> Result<String
         prompt.push_str(instruction);
         prompt.push_str("\n\n");
     }
+    let agent = binding.agent.display_name();
+    let source = if source_name.contains(agent) {
+        source_name.to_string()
+    } else {
+        format!("{source_name}（{agent}）")
+    };
     prompt.push_str(&format!(
-        "以下は別のAIの回答を引用した参考資料です（送信元：{}、pane {}）。前後の区切り線の間が引用です。\n",
-        binding.agent.display_name(),
-        binding.pane_id
+        "以下は別のAIの回答を引用した参考資料です（送信元：{source}）。前後の区切り線の間が引用です。\n"
     ));
     prompt.push_str(&fence);
     prompt.push('\n');

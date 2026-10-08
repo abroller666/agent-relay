@@ -78,7 +78,13 @@ impl HerdrApi for FakeHerdr {
         self.prompt_result.borrow().clone()
     }
     fn list_panes(&self) -> Result<Vec<PaneSummary>, HandoffError> {
-        Ok(Vec::new())
+        Ok(vec![PaneSummary {
+            pane_id: "w1:pA".into(),
+            tab_id: "w1:t1".into(),
+            agent: Some("claude".into()),
+            cwd: Some("/srv/app".into()),
+            ..Default::default()
+        }])
     }
     fn layout(&self, _pane_id: &str) -> Result<Layout, HandoffError> {
         Err(HandoffError::Herdr("no layout".into()))
@@ -346,10 +352,11 @@ fn snapshot(text: &str) -> AnswerSnapshot {
 #[test]
 fn prompt_puts_instruction_first_and_quotes_the_answer_verbatim() {
     let answer = snapshot("line 1\n=====\n```\ncode\n```\n");
-    let prompt = build_prompt("要約して", &answer).unwrap();
+    let prompt = build_prompt("要約して", &answer, "Claude Code ~/work").unwrap();
     assert!(prompt.starts_with("要約して\n"));
-    assert!(prompt.contains("以下は別のAIの回答を引用した参考資料です"));
-    assert!(prompt.contains("Claude Code"));
+    assert!(
+        prompt.contains("以下は別のAIの回答を引用した参考資料です（送信元：Claude Code ~/work）")
+    );
     assert!(prompt.contains(&answer.text));
     // The fence around the quote does not occur in the quote.
     let fence = prompt
@@ -364,11 +371,11 @@ fn prompt_puts_instruction_first_and_quotes_the_answer_verbatim() {
 fn prompt_refuses_terminal_control_characters() {
     for text in ["a\x1b[201~b", "a\x07b", "a\u{9b}b"] {
         let answer = snapshot(text);
-        assert!(build_prompt("go", &answer).is_err(), "{text:?}");
+        assert!(build_prompt("go", &answer, "x").is_err(), "{text:?}");
     }
     let answer = snapshot("tab\there\r\nnext");
-    assert!(build_prompt("go", &answer).is_ok());
-    assert!(build_prompt("bad\x1b", &snapshot("ok")).is_err());
+    assert!(build_prompt("go", &answer, "x").is_ok());
+    assert!(build_prompt("bad\x1b", &snapshot("ok"), "x").is_err());
 }
 
 #[test]
@@ -384,4 +391,30 @@ fn source_transcript_switch_blocks_send() {
         .unwrap_err();
     assert!(matches!(err, HandoffError::SourceChanged(_)), "{err:?}");
     assert_eq!(w.herdr.sent(), 0);
+}
+
+#[test]
+fn prompt_label_adds_the_agent_to_a_pane_name() {
+    let answer = snapshot("text");
+    let prompt = build_prompt("go", &answer, "api server").unwrap();
+    assert!(
+        prompt.contains("（送信元：api server（Claude Code））"),
+        "{prompt}"
+    );
+}
+
+#[test]
+fn sent_prompt_names_the_source_without_pane_ids() {
+    let w = World::new();
+    let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
+    w.service()
+        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .unwrap();
+    let prompts = w.herdr.prompts.borrow();
+    assert!(
+        prompts[0].1.contains("（送信元：Claude Code /srv/app）"),
+        "{}",
+        prompts[0].1
+    );
+    assert!(!prompts[0].1.contains("w1:p"), "{}", prompts[0].1);
 }
