@@ -54,7 +54,7 @@ impl<'a> HandoffService<'a> {
         let after = self.current_source(&source)?;
         if after.state_change_seq != before.state_change_seq {
             return Err(HandoffError::SourceChanged(
-                "読み取り中に送信元の状態が変わりました".into(),
+                "the source changed state while its answer was read".into(),
             ));
         }
         Ok(answer)
@@ -70,13 +70,13 @@ impl<'a> HandoffService<'a> {
         let source = &answer.session.binding;
         if target.pane_id == source.pane_id {
             return Err(HandoffError::TargetChanged(
-                "送信元と同じpaneには送れません".into(),
+                "cannot send to the source pane itself".into(),
             ));
         }
         let server = self.herdr.server_key();
         if source.server_key != server || target.server_key != server {
             return Err(HandoffError::TargetChanged(
-                "別のHerdrサーバーのpaneです".into(),
+                "the pane belongs to another Herdr server".into(),
             ));
         }
         self.current_source(source)?;
@@ -89,7 +89,7 @@ impl<'a> HandoffService<'a> {
         let session = adapter.resolve(source, self.config)?;
         if session.transcript_path != answer.session.transcript_path {
             return Err(HandoffError::SourceChanged(
-                "送信元の履歴が切り替わりました（rewind・forkなど）".into(),
+                "the source session moved to another transcript (rewind or fork)".into(),
             ));
         }
         let fresh = adapter.latest_completed(&session, &self.config.limits)?;
@@ -97,14 +97,14 @@ impl<'a> HandoffService<'a> {
             || fresh.source_fingerprint != answer.source_fingerprint
         {
             return Err(HandoffError::SourceChanged(
-                "送信元の回答が新しくなりました。内容を確認してから送ってください".into(),
+                "the source has a newer answer; review it before sending".into(),
             ));
         }
         let now = match self.herdr.agent(&target.pane_id) {
             Ok(now) => now,
             Err(HandoffError::UnsupportedAgent(_) | HandoffError::SessionUnavailable(_)) => {
                 return Err(HandoffError::TargetChanged(format!(
-                    "{}のエージェントが入れ替わりました",
+                    "the agent in {} was replaced",
                     target.pane_id
                 )));
             }
@@ -112,7 +112,7 @@ impl<'a> HandoffService<'a> {
         };
         if !now.binding.same_occupant(target) {
             return Err(HandoffError::TargetChanged(format!(
-                "{}のエージェントが入れ替わりました",
+                "the agent in {} was replaced",
                 target.pane_id
             )));
         }
@@ -121,7 +121,7 @@ impl<'a> HandoffService<'a> {
         let prompt = build_prompt(instruction, answer)?;
         if prompt.len() > self.config.max_payload_bytes {
             return Err(HandoffError::PayloadTooLarge(format!(
-                "{}バイト（上限{}バイト）",
+                "{} bytes (limit {} bytes)",
                 prompt.len(),
                 self.config.max_payload_bytes
             )));
@@ -139,14 +139,14 @@ impl<'a> HandoffService<'a> {
             Ok(now) => now,
             Err(HandoffError::UnsupportedAgent(_) | HandoffError::SessionUnavailable(_)) => {
                 return Err(HandoffError::SourceChanged(
-                    "送信元のエージェントが入れ替わりました".into(),
+                    "the source agent was replaced".into(),
                 ));
             }
             Err(e) => return Err(e),
         };
         if !now.binding.same_occupant(source) {
             return Err(HandoffError::SourceChanged(
-                "送信元のエージェントが入れ替わりました".into(),
+                "the source agent was replaced".into(),
             ));
         }
         require_ready(&now)?;
@@ -159,12 +159,12 @@ fn require_ready(agent: &AgentSnapshot) -> Result<(), HandoffError> {
         return Ok(());
     }
     let state = if agent.launch_pending {
-        "起動中"
+        "starting"
     } else {
         agent.agent_status.as_str()
     };
     Err(HandoffError::AgentNotReady(format!(
-        "{}は{state}です",
+        "{} is {state}",
         agent.binding.pane_id
     )))
 }

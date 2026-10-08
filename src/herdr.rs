@@ -135,9 +135,7 @@ impl HerdrClient {
     /// Plugin panes and actions always receive `HERDR_SOCKET_PATH`.
     pub fn from_env() -> Result<Self, HandoffError> {
         let path = std::env::var("HERDR_SOCKET_PATH").map_err(|_| {
-            HandoffError::Herdr(
-                "HERDR_SOCKET_PATH がありません（Herdrのプラグインとして起動してください）".into(),
-            )
+            HandoffError::Herdr("HERDR_SOCKET_PATH is not set; run this as a Herdr plugin".into())
         })?;
         Ok(Self::new(&path))
     }
@@ -177,7 +175,7 @@ impl HerdrClient {
             return Err(CallError::TooLarge(req.len()));
         }
         let stream = UnixStream::connect(&self.socket_path)
-            .map_err(|e| CallError::BeforeWrite(format!("Herdrに接続できません: {e}")))?;
+            .map_err(|e| CallError::BeforeWrite(format!("cannot reach Herdr: {e}")))?;
         let timeout = if method == "agent.prompt" {
             PROMPT_TIMEOUT
         } else {
@@ -193,7 +191,7 @@ impl HerdrClient {
             .read_line(&mut line)
             .map_err(|e| CallError::AfterWrite(format!("{method}: {e}")))?;
         let mut resp: Value = serde_json::from_str(&line)
-            .map_err(|_| CallError::AfterWrite(format!("{method}: Herdrの応答を解釈できません")))?;
+            .map_err(|_| CallError::AfterWrite(format!("{method}: unexpected reply from Herdr")))?;
         if let Some(err) = resp.get("error") {
             return Err(CallError::Rejected {
                 code: err["code"].as_str().unwrap_or_default().to_string(),
@@ -223,7 +221,7 @@ impl CallError {
     /// For read-only requests nothing can have been written to a pane.
     fn into_herdr(self) -> HandoffError {
         match self {
-            CallError::TooLarge(n) => HandoffError::PayloadTooLarge(format!("{n}バイト")),
+            CallError::TooLarge(n) => HandoffError::PayloadTooLarge(format!("{n} bytes")),
             CallError::BeforeWrite(m) | CallError::AfterWrite(m) => HandoffError::Herdr(m),
             CallError::Rejected { code, message } => rejected(&code, &message),
         }
@@ -262,9 +260,7 @@ impl HerdrApi for HerdrClient {
             self.call("agent.get", json!({"target": pane_id}))
                 .map_err(|e| match e {
                     CallError::Rejected { code, .. } if code == "agent_not_found" => {
-                        HandoffError::UnsupportedAgent(format!(
-                            "{pane_id}: エージェントが動いていません"
-                        ))
+                        HandoffError::UnsupportedAgent(format!("{pane_id}: no agent running"))
                     }
                     other => other.into_herdr(),
                 })?;

@@ -38,7 +38,7 @@ pub fn read_records(path: &Path, limits: &ReadLimits) -> Result<Records, Handoff
     let size = file.metadata().map(|m| m.len()).unwrap_or(0);
     if size > limits.max_file_bytes {
         return Err(HandoffError::ReadLimitExceeded(format!(
-            "{}: {}バイト（上限{}）",
+            "{}: {} bytes (limit {})",
             name(path),
             size,
             limits.max_file_bytes
@@ -77,7 +77,7 @@ impl Records {
             if self.buf.last() != Some(&b'\n') {
                 if n as u64 >= limit {
                     return Err(HandoffError::ReadLimitExceeded(format!(
-                        "{}: 1行が{}バイトを超えています",
+                        "{}: a line is longer than {} bytes",
                         name(&self.path),
                         self.max_line
                     )));
@@ -91,7 +91,7 @@ impl Records {
             }
             let value = serde_json::from_slice(line).map_err(|e| {
                 HandoffError::TranscriptCorrupt(format!(
-                    "{}: {}バイト目の行: {e}",
+                    "{}: line at byte {}: {e}",
                     name(&self.path),
                     start
                 ))
@@ -128,7 +128,7 @@ pub fn read_at(path: &Path, offset: u64, len: usize) -> Result<Value, HandoffErr
     let mut buf = vec![0; len];
     file.read_exact(&mut buf).map_err(|e| io_error(path, e))?;
     serde_json::from_slice(buf.trim_ascii_end()).map_err(|_| {
-        HandoffError::SourceChanged(format!("{}が読み取り中に書き換えられました", name(path)))
+        HandoffError::SourceChanged(format!("{} was rewritten while being read", name(path)))
     })
 }
 

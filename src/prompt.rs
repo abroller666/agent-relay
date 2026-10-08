@@ -7,12 +7,12 @@ use crate::model::AnswerSnapshot;
 pub fn build_prompt(instruction: &str, answer: &AnswerSnapshot) -> Result<String, HandoffError> {
     if has_control(instruction) {
         return Err(HandoffError::InvalidInstruction(
-            "端末制御文字が含まれています".into(),
+            "it contains terminal control characters".into(),
         ));
     }
     if has_control(&answer.text) {
         return Err(HandoffError::UnsupportedTranscript(
-            "回答に端末制御文字が含まれているため送れません".into(),
+            "the answer contains terminal control characters".into(),
         ));
     }
     let fence = fence_for(&answer.text);

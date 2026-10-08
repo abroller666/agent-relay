@@ -18,7 +18,7 @@ pub fn validate_session_id(id: &str) -> Result<(), HandoffError> {
         Ok(())
     } else {
         Err(HandoffError::SessionUnavailable(
-            "セッションIDの形式が想定外です".into(),
+            "unexpected session id format".into(),
         ))
     }
 }
@@ -30,7 +30,7 @@ pub fn binding_from_agent(info: &Value, server_key: &str) -> Result<PaneBinding,
     let agent_name = str_field("agent").unwrap_or_default();
     let Some(agent) = AgentKind::from_herdr(agent_name) else {
         let shown = if agent_name.is_empty() {
-            "なし"
+            "none"
         } else {
             agent_name
         };
@@ -40,19 +40,19 @@ pub fn binding_from_agent(info: &Value, server_key: &str) -> Result<PaneBinding,
     };
     let Some(session) = info.get("agent_session").filter(|s| !s.is_null()) else {
         return Err(HandoffError::SessionUnavailable(format!(
-            "{pane_id}: Herdr integrationを確認し、セッションを開始し直してください"
+            "{pane_id}: check the Herdr integration and restart the session"
         )));
     };
     let s = |key: &str| session.get(key).and_then(Value::as_str).unwrap_or_default();
     let expected_source = format!("herdr:{}", agent.herdr_name());
     if s("source") != expected_source || s("agent") != agent.herdr_name() {
         return Err(HandoffError::SessionUnavailable(format!(
-            "{pane_id}: セッション参照が現在のエージェントのものではありません"
+            "{pane_id}: the session reference is not from the current agent"
         )));
     }
     if s("kind") != "id" {
         return Err(HandoffError::SessionUnavailable(format!(
-            "{pane_id}: 未対応のセッション参照（{}）",
+            "{pane_id}: unsupported session reference ({})",
             s("kind")
         )));
     }
@@ -60,7 +60,7 @@ pub fn binding_from_agent(info: &Value, server_key: &str) -> Result<PaneBinding,
     let terminal_id = str_field("terminal_id").unwrap_or_default();
     let tab_id = str_field("tab_id").unwrap_or_default();
     if pane_id.is_empty() || terminal_id.is_empty() {
-        return Err(HandoffError::Herdr("pane情報が不完全です".into()));
+        return Err(HandoffError::Herdr("incomplete pane information".into()));
     }
     Ok(PaneBinding {
         server_key: server_key.to_string(),
@@ -105,15 +105,18 @@ pub fn find_claude_transcript(
 pub fn unique(mut found: Vec<PathBuf>, id: &str) -> Result<PathBuf, HandoffError> {
     match found.len() {
         0 => Err(HandoffError::TranscriptUnavailable(format!(
-            "{id}（まだ最初の発言をしていないセッションの可能性があります）"
+            "{id} (the session may not have had its first prompt yet)"
         ))),
         1 => Ok(found.remove(0)),
-        n => Err(HandoffError::SessionAmbiguous(format!("{id}: {n}件"))),
+        n => Err(HandoffError::SessionAmbiguous(format!("{id}: {n} files"))),
     }
 }
 
 pub fn too_many(limits: &ReadLimits) -> HandoffError {
-    HandoffError::ReadLimitExceeded(format!("探索候補が{}件を超えました", limits.max_candidates))
+    HandoffError::ReadLimitExceeded(format!(
+        "more than {} candidate files",
+        limits.max_candidates
+    ))
 }
 
 /// The directories directly inside `dir` (none if `dir` does not exist),
@@ -196,14 +199,14 @@ pub fn find_codex_rollouts(
     }
     if bases.len() > 1 {
         return Err(HandoffError::SessionAmbiguous(format!(
-            "{id}: {}件",
+            "{id}: {} files",
             bases.len()
         )));
     }
     segments.sort();
     if segments.windows(2).any(|w| w[0].0 == w[1].0) {
         return Err(HandoffError::SessionAmbiguous(format!(
-            "{id}: 同じセグメントが複数あります"
+            "{id}: duplicate segments"
         )));
     }
     let base = bases.pop();

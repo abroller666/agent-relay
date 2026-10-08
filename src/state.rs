@@ -89,7 +89,7 @@ pub fn path(dir: &Path, op: &str) -> Result<PathBuf, String> {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
     if !ok {
-        return Err(format!("不正な起動ID: {op:?}"));
+        return Err(format!("invalid launch id: {op:?}"));
     }
     Ok(dir.join(format!("{PREFIX}{op}.json")))
 }
@@ -131,7 +131,7 @@ pub fn load(dir: &Path, op: &str) -> Result<Option<PopupState>, String> {
     let state: PopupState =
         serde_json::from_slice(&text).map_err(|e| format!("{}: {e}", path.display()))?;
     if state.op != op {
-        return Err(format!("{}: 起動IDが一致しません", path.display()));
+        return Err(format!("{}: launch id mismatch", path.display()));
     }
     Ok(Some(state))
 }

@@ -132,12 +132,12 @@ fn read_latest(
     }
     if records.partial_tail() {
         return Err(HandoffError::CompletionUncertain(
-            "履歴の書き込みが終わっていません".into(),
+            "the transcript is still being written".into(),
         ));
     }
     let Some(leaf) = leaf else {
         return Err(HandoffError::NoCompletedAnswer(
-            "このセッションにはまだ回答がありません".into(),
+            "this session has no answer yet".into(),
         ));
     };
 
@@ -155,7 +155,7 @@ fn read_latest(
         Kind::User { interrupted: true } => return Err(interrupted()),
         _ => {
             return Err(HandoffError::CompletionUncertain(
-                "最新のターンが完了していません".into(),
+                "the latest turn has not finished".into(),
             ));
         }
     };
@@ -169,7 +169,7 @@ fn read_latest(
             api_error: true, ..
         } => {
             return Err(HandoffError::NoCompletedAnswer(
-                "最新のターンはAPIエラーで終わりました".into(),
+                "the latest turn ended with an API error".into(),
             ));
         }
         Kind::Assistant {
@@ -181,13 +181,13 @@ fn read_latest(
         }
         Kind::Assistant { .. } => {
             return Err(HandoffError::NoCompletedAnswer(
-                "最新の回答が正常に終了していません".into(),
+                "the latest answer did not end normally".into(),
             ));
         }
         Kind::User { interrupted: true } => return Err(interrupted()),
         _ => {
             return Err(HandoffError::NoCompletedAnswer(
-                "最新のターンに回答がありません".into(),
+                "the latest turn has no answer".into(),
             ));
         }
     };
@@ -205,7 +205,7 @@ fn read_latest(
     }
     if parts.iter().any(|n| !n.same_session) || !chain.node(&turn_end)?.1.same_session {
         return Err(HandoffError::UnsupportedTranscript(
-            "履歴のsessionIdがHerdrのセッションと一致しません".into(),
+            "transcript sessionId does not match the Herdr session".into(),
         ));
     }
 
@@ -219,7 +219,9 @@ fn read_latest(
         }
     }
     if text.trim().is_empty() {
-        return Err(HandoffError::NoCompletedAnswer("回答本文が空です".into()));
+        return Err(HandoffError::NoCompletedAnswer(
+            "the answer is empty".into(),
+        ));
     }
     Ok(AnswerSnapshot {
         source_fingerprint: fingerprint(&[&session.native_id, &turn_end, &message_id, &text]),
@@ -230,7 +232,7 @@ fn read_latest(
 }
 
 fn interrupted() -> HandoffError {
-    HandoffError::NoCompletedAnswer("最新のターンは中断されました".into())
+    HandoffError::NoCompletedAnswer("the latest turn was interrupted".into())
 }
 
 /// Appends a text block, separating it from the previous one by a blank
@@ -256,11 +258,11 @@ impl<'a> Chain<'a> {
         self.steps += 1;
         if self.steps > self.nodes.len() + 1 {
             return Err(HandoffError::TranscriptCorrupt(
-                "親子関係が循環しています".into(),
+                "parent links form a cycle".into(),
             ));
         }
         let (key, node) = self.nodes.get_key_value(uuid).ok_or_else(|| {
-            HandoffError::UnsupportedTranscript("親レコードが見つかりません".into())
+            HandoffError::UnsupportedTranscript("a parent record is missing".into())
         })?;
         Ok((key.as_str(), node))
     }
@@ -269,7 +271,7 @@ impl<'a> Chain<'a> {
         match node.parent.as_deref() {
             Some(p) => self.node(p),
             None => Err(HandoffError::NoCompletedAnswer(
-                "このセッションにはまだ回答がありません".into(),
+                "this session has no answer yet".into(),
             )),
         }
     }

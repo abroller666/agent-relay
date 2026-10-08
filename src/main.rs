@@ -112,10 +112,9 @@ fn popup_height(screen_rows: usize) -> usize {
 }
 
 fn run_popup() -> Result<(), String> {
-    let op = std::env::var(OP_ENV)
-        .map_err(|_| "起動IDがありません（プラグインのアクションから開いてください）")?;
+    let op = std::env::var(OP_ENV).map_err(|_| "no launch id; open this from the plugin action")?;
     let dir = state_dir();
-    let state = state::load(&dir, &op)?.ok_or("この起動の状態が見つかりません")?;
+    let state = state::load(&dir, &op)?.ok_or("the state of this launch is missing")?;
     let result = popup_loop(&dir, state);
     state::clear(&dir, &op);
     result
@@ -136,7 +135,7 @@ fn popup_loop(dir: &Path, state: PopupState) -> Result<(), String> {
 
     if popup.screen() == Screen::Loading {
         // Read the answer on another thread so Ctrl+G still works.
-        let source = popup.source().cloned().ok_or("送信元がありません")?;
+        let source = popup.source().cloned().ok_or("no source pane")?;
         let (tx, rx) = mpsc::channel();
         let thread_config = config.clone();
         std::thread::spawn(move || {
@@ -152,7 +151,7 @@ fn popup_loop(dir: &Path, state: PopupState) -> Result<(), String> {
                     break;
                 }
                 Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return Err("回答の読み取りが異常終了しました".into());
+                    return Err("reading the answer failed unexpectedly".into());
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
@@ -253,7 +252,7 @@ fn readable_within(ms: i32) -> bool {
 /// before it can be read.
 fn fail(msg: &str) -> ! {
     print(&format!(
-        "\x1b[2J\x1b[H\x1b[31mpane-relay: {msg}\x1b[0m\r\n\x1b[2m何かキーを押すと閉じます\x1b[0m"
+        "\x1b[2J\x1b[H\x1b[31mpane-relay: {msg}\x1b[0m\r\n\x1b[2mpress any key to close\x1b[0m"
     ));
     let _ = std::io::stdin().read(&mut [0u8; 1]);
     std::process::exit(1);

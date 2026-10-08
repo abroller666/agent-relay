@@ -91,7 +91,7 @@ impl PopupService for FakeService {
             agent: "codex".into(),
             status: "idle".into(),
             binding: ok.then(|| binding(pane, agent, "01a118e3-a882-7d10-9675-afffb81169d9")),
-            unavailable: (!ok).then(|| "セッション未登録".to_string()),
+            unavailable: (!ok).then(|| "no session yet".to_string()),
         };
         Ok(vec![
             row("w1:pB", AgentKind::Codex, true),
@@ -174,7 +174,7 @@ fn failed_send_keeps_the_instruction_for_a_manual_retry() {
     assert_eq!(svc.sent(), 1);
     assert_eq!(p.screen(), Screen::Editing);
     assert_eq!(p.state().instruction, "go");
-    assert!(p.message().unwrap().contains("受付可能"));
+    assert!(p.message().unwrap().contains("not ready"));
     *svc.send_result.borrow_mut() = Ok(SendOutcome::Accepted);
     p.feed(b"\r");
     assert_eq!(svc.sent(), 2);
@@ -193,7 +193,7 @@ fn updated_answer_is_reloaded_and_not_sent_automatically() {
     assert_eq!(p.screen(), Screen::Editing);
     assert_eq!(p.state().answer.as_ref().unwrap().answer_id, "msg_2");
     assert_eq!(p.state().instruction, "go");
-    assert!(p.message().unwrap().contains("回答が更新されました"));
+    assert!(p.message().unwrap().contains("answer was updated"));
 }
 
 #[test]
@@ -333,5 +333,66 @@ fn picker_rows_show_pane_ids() {
                 .any(|l| l.contains(pane) && l.contains("codex")),
             "{pane} missing from:\n{screen}"
         );
+    }
+}
+
+fn has_japanese(s: &str) -> bool {
+    s.chars().any(|c| matches!(c, '\u{3040}'..='\u{30ff}' | '\u{4e00}'..='\u{9fff}' | '\u{ff00}'..='\u{ffef}'))
+}
+
+#[test]
+fn menus_are_english() {
+    let svc = FakeService::new();
+    *svc.answer.borrow_mut() = Ok(answer("msg_1", "plain answer"));
+    let mut p = Popup::new(PopupState::new("op1", Some(source())), &svc);
+    let mut screens = vec![p.render(100, 20)];
+    p.load();
+    screens.push(p.render(100, 20)); // picker
+    p.feed(b"2");
+    p.feed(b"\r"); // refused: no session
+    screens.push(p.render(100, 20));
+    p.feed(b"1");
+    p.feed(b"\r");
+    screens.push(p.render(100, 20)); // editor, empty
+    p.feed(b"\r"); // empty instruction
+    screens.push(p.render(100, 20));
+    *svc.answer.borrow_mut() = Err(HandoffError::CompletionUncertain("x".into()));
+    p.feed(b"\x12");
+    screens.push(p.render(100, 20)); // answer missing
+    *svc.answer.borrow_mut() = Ok(answer("msg_2", "plain answer"));
+    p.feed(b"\x12");
+    p.feed(b"go");
+    *svc.send_result.borrow_mut() = Ok(SendOutcome::DeliveryUnknown);
+    p.feed(b"\r");
+    screens.push(p.render(100, 20));
+    let mut fatal = Popup::new(PopupState::new("op2", None), &svc);
+    screens.push(fatal.render(100, 20));
+    for screen in screens {
+        assert!(!has_japanese(&screen), "{screen}");
+    }
+}
+
+#[test]
+fn error_messages_are_english() {
+    let errors = [
+        HandoffError::UnsupportedAgent(String::new()),
+        HandoffError::SessionUnavailable(String::new()),
+        HandoffError::SessionAmbiguous(String::new()),
+        HandoffError::TranscriptUnavailable(String::new()),
+        HandoffError::UnsupportedTranscript(String::new()),
+        HandoffError::CompletionUncertain(String::new()),
+        HandoffError::NoCompletedAnswer(String::new()),
+        HandoffError::TranscriptCorrupt(String::new()),
+        HandoffError::ReadLimitExceeded(String::new()),
+        HandoffError::SourceChanged(String::new()),
+        HandoffError::TargetChanged(String::new()),
+        HandoffError::AgentNotReady(String::new()),
+        HandoffError::PayloadTooLarge(String::new()),
+        HandoffError::InvalidInstruction(String::new()),
+        HandoffError::DeliveryUnknown(String::new()),
+        HandoffError::Herdr(String::new()),
+    ];
+    for e in errors {
+        assert!(!has_japanese(&e.to_string()), "{e}");
     }
 }

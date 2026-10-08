@@ -82,15 +82,15 @@ fn read_latest(
         Some(r) => r?,
         None if records.partial_tail() => {
             return Err(HandoffError::CompletionUncertain(
-                "履歴の書き込みが終わっていません".into(),
+                "the transcript is still being written".into(),
             ));
         }
-        None => return Err(unsupported("空のファイルです")),
+        None => return Err(unsupported("empty file")),
     };
     let meta = &first.value["payload"];
     if first.value["type"] != "session_meta" || meta["id"].as_str() != Some(id) {
         return Err(unsupported(
-            "session_metaのIDがHerdrのセッションと一致しません",
+            "session_meta id does not match the Herdr session",
         ));
     }
     let is_segment = path
@@ -98,7 +98,7 @@ fn read_latest(
         .and_then(|n| n.to_str())
         .is_some_and(|n| n.contains(&format!("{id}_")));
     if is_segment && meta["history_base"]["thread_id"].as_str() != Some(id) {
-        return Err(unsupported("セグメントの参照先が別のスレッドです"));
+        return Err(unsupported("the segment belongs to another thread"));
     }
 
     let mut turn: Option<Turn> = None;
@@ -116,7 +116,7 @@ fn read_latest(
                 });
             }
             (Some("event_msg"), Some(t)) if t.contains("roll") && t.contains("back") => {
-                return Err(unsupported("未確認のロールバック記録があります"));
+                return Err(unsupported("unverified rollback record"));
             }
             (Some("event_msg"), Some(t @ ("task_complete" | "turn_aborted"))) => {
                 let Some(turn) = turn.as_mut().filter(|turn| turn.end.is_none()) else {
@@ -139,7 +139,7 @@ fn read_latest(
                 };
                 let owner = &p["internal_chat_message_metadata_passthrough"]["turn_id"];
                 if !owner.is_null() && owner.as_str() != Some(&turn.id) {
-                    return Err(unsupported("別のターンのメッセージが混在しています"));
+                    return Err(unsupported("a message of another turn is mixed in"));
                 }
                 let message = Message {
                     id: p["id"].as_str().unwrap_or_default().to_string(),
@@ -157,24 +157,24 @@ fn read_latest(
     }
     if records.partial_tail() {
         return Err(HandoffError::CompletionUncertain(
-            "履歴の書き込みが終わっていません".into(),
+            "the transcript is still being written".into(),
         ));
     }
 
     let Some(turn) = turn else {
         return Err(HandoffError::NoCompletedAnswer(
-            "このセッションにはまだ回答がありません（rewind・forkの直後は、一度発言してから使ってください）".into(),
+            "this session has no answer yet (after a rewind or fork, send one prompt first)".into(),
         ));
     };
     let last_agent_message = match turn.end {
         None => {
             return Err(HandoffError::CompletionUncertain(
-                "最新のターンが完了していません".into(),
+                "the latest turn has not finished".into(),
             ));
         }
         Some(End::Aborted) => {
             return Err(HandoffError::NoCompletedAnswer(
-                "最新のターンは中断されました".into(),
+                "the latest turn was interrupted".into(),
             ));
         }
         Some(End::Complete { last_agent_message }) => last_agent_message,
@@ -186,7 +186,7 @@ fn read_latest(
         (None, Some(m)) => (m, false),
         (None, None) => {
             return Err(HandoffError::NoCompletedAnswer(
-                "最新のターンに最終回答がありません".into(),
+                "the latest turn has no final answer".into(),
             ));
         }
     };
@@ -194,11 +194,13 @@ fn read_latest(
     let matches_completion = last_agent_message.as_deref() == Some(text.as_str());
     if !matches_completion && (!phased || last_agent_message.is_some()) {
         return Err(HandoffError::CompletionUncertain(
-            "最終回答とターン完了の記録が一致しません".into(),
+            "the final answer does not match the turn completion record".into(),
         ));
     }
     if text.trim().is_empty() {
-        return Err(HandoffError::NoCompletedAnswer("回答本文が空です".into()));
+        return Err(HandoffError::NoCompletedAnswer(
+            "the answer is empty".into(),
+        ));
     }
     Ok(AnswerSnapshot {
         source_fingerprint: fingerprint(&[id, &name(path), &turn.id, &chosen.id, &text]),

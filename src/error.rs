@@ -55,27 +55,27 @@ impl HandoffError {
 impl fmt::Display for HandoffError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (what, detail) = match self {
-            Self::UnsupportedAgent(d) => ("対応していないエージェントです", d),
-            Self::SessionUnavailable(d) => ("Herdrにセッションが登録されていません", d),
-            Self::SessionAmbiguous(d) => ("セッションの履歴が複数見つかりました", d),
-            Self::TranscriptUnavailable(d) => ("セッションの履歴が見つかりません", d),
-            Self::UnsupportedTranscript(d) => ("未対応の履歴形式です", d),
-            Self::CompletionUncertain(d) => ("回答の完了を確認できません", d),
-            Self::NoCompletedAnswer(d) => ("完了した回答がありません", d),
-            Self::TranscriptCorrupt(d) => ("履歴が壊れています", d),
-            Self::ReadLimitExceeded(d) => ("読み取り上限を超えました", d),
-            Self::SourceChanged(d) => ("回答が更新されました", d),
-            Self::TargetChanged(d) => ("送信先が変わりました", d),
-            Self::AgentNotReady(d) => ("エージェントが受付可能な状態ではありません", d),
-            Self::PayloadTooLarge(d) => ("送信サイズが上限を超えています", d),
-            Self::InvalidInstruction(d) => ("指示を送れません", d),
-            Self::DeliveryUnknown(d) => ("送信結果を確認できません", d),
-            Self::Herdr(d) => ("Herdrとの通信に失敗しました", d),
+            Self::UnsupportedAgent(d) => ("Unsupported agent", d),
+            Self::SessionUnavailable(d) => ("No session registered in Herdr", d),
+            Self::SessionAmbiguous(d) => ("More than one transcript matches the session", d),
+            Self::TranscriptUnavailable(d) => ("Session transcript not found", d),
+            Self::UnsupportedTranscript(d) => ("Unsupported transcript format", d),
+            Self::CompletionUncertain(d) => ("Cannot confirm the answer is finished", d),
+            Self::NoCompletedAnswer(d) => ("No finished answer", d),
+            Self::TranscriptCorrupt(d) => ("Transcript is corrupt", d),
+            Self::ReadLimitExceeded(d) => ("Read limit exceeded", d),
+            Self::SourceChanged(d) => ("The answer was updated", d),
+            Self::TargetChanged(d) => ("The target changed", d),
+            Self::AgentNotReady(d) => ("Agent is not ready", d),
+            Self::PayloadTooLarge(d) => ("Prompt is too large", d),
+            Self::InvalidInstruction(d) => ("Cannot send the instruction", d),
+            Self::DeliveryUnknown(d) => ("Delivery could not be confirmed", d),
+            Self::Herdr(d) => ("Herdr request failed", d),
         };
         if detail.is_empty() {
             f.write_str(what)
         } else {
-            write!(f, "{what}：{detail}")
+            write!(f, "{what}: {detail}")
         }
     }
 }

@@ -99,7 +99,7 @@ impl<'a> Popup<'a> {
                 text: state
                     .source_error
                     .clone()
-                    .unwrap_or_else(|| "送信元のpaneを特定できません".into()),
+                    .unwrap_or_else(|| "cannot identify the source pane".into()),
                 error: true,
             });
         }
@@ -186,7 +186,7 @@ impl<'a> Popup<'a> {
             Err(e) => {
                 self.state.answer = None;
                 self.message = Some(Message {
-                    text: format!("{e}（Ctrl+Rで再取得）"),
+                    text: format!("{e} (C-r: read again)"),
                     error: true,
                 });
             }
@@ -282,9 +282,9 @@ impl<'a> Popup<'a> {
                     None => {
                         self.message = Some(Message {
                             text: format!(
-                                "{}には送れません：{}",
+                                "cannot send to {}: {}",
                                 row.pane_id,
-                                row.unavailable.as_deref().unwrap_or("対象外")
+                                row.unavailable.as_deref().unwrap_or("not a target")
                             ),
                             error: true,
                         });
@@ -328,14 +328,14 @@ impl<'a> Popup<'a> {
         let (Some(answer), Some(target)) = (self.state.answer.clone(), self.state.target.clone())
         else {
             self.message = Some(Message {
-                text: "送る回答がありません（Ctrl+Rで再取得）".into(),
+                text: "no answer to send (C-r: read again)".into(),
                 error: true,
             });
             return;
         };
         if instruction.trim().is_empty() {
             self.message = Some(Message {
-                text: "指示を入力してください".into(),
+                text: "type an instruction first".into(),
                 error: true,
             });
             return;
@@ -353,7 +353,7 @@ impl<'a> Popup<'a> {
                 if self.state.answer.is_some() {
                     self.message = Some(Message {
                         text:
-                            "回答が更新されました。新しい回答を確認してからEnterで送信してください"
+                            "The answer was updated. Review the new answer, then press Enter to send"
                                 .into(),
                         error: false,
                     });
@@ -380,40 +380,40 @@ impl<'a> Popup<'a> {
         match self.state.screen {
             Screen::Loading => {
                 lines.push(format!(
-                    "{}  回答を取得しています…  {}",
+                    "{}  reading the answer…  {}",
                     bold("pane-relay"),
-                    dim("C-g: 中止")
+                    dim("C-g: cancel")
                 ));
-                lines.push(dim(&format!("送信元 {}", self.source_name())));
+                lines.push(dim(&format!("from {}", self.source_name())));
             }
             Screen::Fatal => {
                 lines.push(red(&format!(
                     "pane-relay: {}",
                     self.message().unwrap_or("")
                 )));
-                lines.push(dim("何かキーを押すと閉じます"));
+                lines.push(dim("press any key to close"));
             }
             Screen::Selecting => self.draw_picker(&mut lines, cols, rows),
             Screen::Editing | Screen::Sending => {
                 cursor = self.draw_editor(&mut lines, cols, rows);
             }
             Screen::Sent => {
-                lines.push(green(&format!("送信しました → {}", self.target_name())));
+                lines.push(green(&format!("Sent → {}", self.target_name())));
                 lines.push(dim(
-                    "相手が受け付けたことだけを示します。処理の完了は相手のpaneで確認してください。",
+                    "This only means the target accepted the prompt; check its pane for the result.",
                 ));
-                lines.push(dim("何かキーを押すと閉じます"));
+                lines.push(dim("press any key to close"));
             }
             Screen::DeliveryUnknown => {
                 lines.push(yellow(&format!(
-                    "送信できたか確認できませんでした → {}",
+                    "Could not confirm delivery → {}",
                     self.target_name()
                 )));
                 lines.push(
-                    "相手のpaneを確認してください。二重送信を避けるため、自動では再送しません。"
+                    "Check the target pane. Nothing is resent automatically, to avoid sending twice."
                         .into(),
                 );
-                lines.push(dim("何かキーを押すと閉じます"));
+                lines.push(dim("press any key to close"));
             }
         }
         for (i, line) in lines.iter().take(rows).enumerate() {
@@ -440,18 +440,18 @@ impl<'a> Popup<'a> {
         self.state
             .target
             .as_ref()
-            .map_or_else(|| "（未選択）".into(), pane_name)
+            .map_or_else(|| "(none)".into(), pane_name)
     }
 
     fn draw_picker(&mut self, lines: &mut Vec<String>, cols: usize, rows: usize) {
         lines.push(format!(
             "{}  {}",
-            bold(&format!("送り先を選択（送信元 {}）", self.source_name())),
-            dim("↑↓/jk: 移動  1-9/␣: 選択  ⏎: 決定  C-g: 終了")
+            bold(&format!("Choose the target (from {})", self.source_name())),
+            dim("↑↓/jk: move  1-9/␣: pick  ⏎: choose  C-g: quit")
         ));
         let space = rows.saturating_sub(2).max(1);
         if self.rows.is_empty() {
-            lines.push(dim("このタブには他のpaneがありません"));
+            lines.push(dim("no other panes in this tab"));
         }
         let shown = self.picker.window(self.rows.len(), space);
         for i in shown {
@@ -497,8 +497,8 @@ impl<'a> Popup<'a> {
         rows: usize,
     ) -> Option<(usize, usize)> {
         let status = match &self.state.answer {
-            Some(a) => green(&format!("回答 {} ✓", size(a.text.len()))),
-            None => red("回答なし"),
+            Some(a) => green(&format!("answer {} ✓", size(a.text.len()))),
+            None => red("no answer"),
         };
         lines.push(fit_styled(
             &format!(
@@ -511,11 +511,11 @@ impl<'a> Popup<'a> {
         ));
         // Footer: the message, or the keys.
         let footer = match (&self.message, self.state.screen) {
-            (_, Screen::Sending) => yellow("送信中…"),
+            (_, Screen::Sending) => yellow("sending…"),
             (Some(m), _) if m.error => red(&fit(&m.text, cols)),
             (Some(m), _) => yellow(&fit(&m.text, cols)),
             (None, _) => dim(&fit(
-                "⏎: 送信  M-⏎: 改行  C-]: 送り先  C-r: 再取得  C-g: 終了",
+                "⏎: send  M-⏎: newline  C-]: target  C-r: reload  C-g: quit",
                 cols,
             )),
         };
@@ -547,7 +547,7 @@ impl<'a> Popup<'a> {
             lines.push(format!("{lead}{r}"));
         }
         if self.editor.text().is_empty() {
-            lines[top] = format!("{PROMPT}{}", dim("Bへの指示を入力"));
+            lines[top] = format!("{PROMPT}{}", dim("instruction for the target"));
         }
         while lines.len() < top + edit_rows {
             lines.push(String::new());
@@ -653,7 +653,7 @@ impl PopupService for LiveService<'_> {
         let mut out = std::io::stdout().lock();
         let _ = std::io::Write::write_all(
             &mut out,
-            "\x1b[999;1H\x1b[2K\x1b[33m送信中…\x1b[0m".as_bytes(),
+            "\x1b[999;1H\x1b[2K\x1b[33msending…\x1b[0m".as_bytes(),
         );
         let _ = std::io::Write::flush(&mut out);
     }
@@ -693,9 +693,9 @@ impl LiveService<'_> {
             unavailable: None,
         };
         let reason = if agent.is_empty() {
-            Some("AIエージェントなし".to_string())
+            Some("no AI agent".to_string())
         } else if AgentKind::from_herdr(&agent).is_none() {
-            Some("未対応のエージェント".to_string())
+            Some("unsupported agent".to_string())
         } else {
             match self.herdr.agent(&p.pane_id) {
                 Ok(a) => {
@@ -705,15 +705,15 @@ impl LiveService<'_> {
                         None
                     } else {
                         Some(match a.agent_status.as_str() {
-                            "working" => "処理中".to_string(),
-                            "blocked" => "承認待ち".to_string(),
-                            _ if a.launch_pending => "起動中".to_string(),
-                            _ => "状態不明".to_string(),
+                            "working" => "working".to_string(),
+                            "blocked" => "waiting for approval".to_string(),
+                            _ if a.launch_pending => "starting".to_string(),
+                            _ => "unknown state".to_string(),
                         })
                     }
                 }
                 Err(HandoffError::SessionUnavailable(_)) => {
-                    Some("セッション未登録（一度発言すると登録されます）".to_string())
+                    Some("no session yet (send it one prompt first)".to_string())
                 }
                 Err(e) => Some(e.to_string()),
             }
