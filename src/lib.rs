@@ -13,4 +13,6 @@ pub mod herdr;
 pub mod model;
 pub mod prompt;
 pub mod session;
+pub mod state;
 pub mod transcript;
+pub mod ui;

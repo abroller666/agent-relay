@@ -1,0 +1,25 @@
+id = "abroller666.pane-relay"
+name = "Pane Relay"
+version = "0.1.0"
+min_herdr_version = "0.9.3"
+description = "Hand the last finished answer of the AI in this pane, plus your instruction, to the AI in another pane"
+platforms = ["linux", "macos"]
+
+# Needs cargo. `herdr plugin link` skips this; run scripts/build.sh yourself.
+[[build]]
+command = ["sh", "scripts/build.sh"]
+
+[[actions]]
+id = "open"
+title = "Hand the last answer to another pane"
+# Fixes the focused pane as the source, then opens the console popup.
+command = ["./bin/pane-relay", "open"]
+
+# The popup. `open` passes the height fitting the screen; this is a fallback.
+[[panes]]
+id = "console"
+title = "Pane Relay"
+placement = "popup"
+width = "60%"
+height = 16
+command = ["./bin/pane-relay"]
