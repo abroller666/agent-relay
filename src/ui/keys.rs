@@ -43,6 +43,8 @@ pub enum Key {
     Pick,
     /// Ctrl+R: read the answer again.
     Reload,
+    /// Ctrl+O: choose among the source's earlier answers.
+    Answers,
     /// Ctrl+G / Ctrl+Q.
     Quit,
     Esc,
@@ -110,6 +112,7 @@ impl Decoder {
                 0x0e => Some(Key::Next),
                 0x1d => Some(Key::Pick),
                 0x12 => Some(Key::Reload),
+                0x0f => Some(Key::Answers),
                 0x07 | 0x11 => Some(Key::Quit),
                 b'\t' => Some(Key::Text("\t".into())),
                 0x1b => None,

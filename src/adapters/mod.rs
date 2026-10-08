@@ -31,6 +31,16 @@ pub trait AnswerAdapter {
         session: &ResolvedSession,
         limits: &ReadLimits,
     ) -> Result<AnswerSnapshot, HandoffError>;
+
+    /// The finished answers of the session's current conversation, newest
+    /// first, at most `max`. Unlike `latest_completed`, a latest turn that
+    /// is running or ended without an answer does not hide older answers.
+    fn completed_answers(
+        &self,
+        session: &ResolvedSession,
+        limits: &ReadLimits,
+        max: usize,
+    ) -> Result<Vec<AnswerSnapshot>, HandoffError>;
 }
 
 /// Which adapter reads which agent. Tests substitute their own.

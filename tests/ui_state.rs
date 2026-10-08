@@ -44,12 +44,16 @@ fn answer(id: &str, text: &str) -> AnswerSnapshot {
         answer_id: id.into(),
         text: text.into(),
         source_fingerprint: format!("fp-{id}"),
+        finished_at: None,
+        chosen: false,
     }
 }
 
 struct FakeService {
     answer: RefCell<Result<AnswerSnapshot, HandoffError>>,
     sends: RefCell<Vec<(String, String)>>,
+    /// The answer id of each send, and whether it was picked by hand.
+    sent_answers: RefCell<Vec<(String, bool)>>,
     send_result: RefCell<Result<SendOutcome, HandoffError>>,
     prepares: RefCell<usize>,
     source_name: RefCell<Option<String>>,
@@ -60,6 +64,7 @@ impl FakeService {
         Self {
             answer: RefCell::new(Ok(answer("msg_1", "## 回答\n本文"))),
             sends: RefCell::new(Vec::new()),
+            sent_answers: RefCell::new(Vec::new()),
             send_result: RefCell::new(Ok(SendOutcome::Accepted)),
             prepares: RefCell::new(0),
             source_name: RefCell::new(None),
@@ -77,14 +82,23 @@ impl PopupService for FakeService {
     }
     fn send(
         &self,
-        _answer: &AnswerSnapshot,
+        answer: &AnswerSnapshot,
         target: &PaneBinding,
         instruction: &str,
     ) -> Result<SendOutcome, HandoffError> {
+        self.sent_answers
+            .borrow_mut()
+            .push((answer.answer_id.clone(), answer.chosen));
         self.sends
             .borrow_mut()
             .push((target.pane_id.clone(), instruction.to_string()));
         self.send_result.borrow().clone()
+    }
+    fn answers(&self, _source: &PaneBinding) -> Result<Vec<AnswerSnapshot>, HandoffError> {
+        let latest = self.answer.borrow().clone()?;
+        let mut older = answer("msg_0", "an older answer\nsecond line");
+        older.finished_at = Some("2026-10-08T00:25:27.875Z".into());
+        Ok(vec![latest, older])
     }
     fn display_name(&self, _pane: &PaneBinding) -> Option<String> {
         self.source_name.borrow().clone()
@@ -399,6 +413,9 @@ fn menus_are_english() {
     p.feed(b"1");
     p.feed(b"\r");
     screens.push(p.render(100, 20)); // editor, empty
+    p.feed(b"\x0f");
+    screens.push(p.render(100, 20)); // answers
+    p.feed(b"\x0f");
     *svc.answer.borrow_mut() = Err(HandoffError::CompletionUncertain("x".into()));
     p.feed(b"\x12");
     screens.push(p.render(100, 20)); // answer missing
@@ -577,4 +594,55 @@ mod live_targets {
         assert!(screen.contains("review"), "{screen}");
         assert!(screen.contains("develop"), "{screen}");
     }
+}
+
+#[test]
+fn an_older_answer_can_be_chosen_and_sent() {
+    let svc = FakeService::new();
+    let mut p = editing(&svc);
+    p.feed(b"keep");
+    p.feed(b"\x0f"); // Ctrl+O: the answers
+    assert_eq!(p.screen(), Screen::Answers);
+    let list = plain(&p.render(100, 20));
+    assert!(list.contains("an older answer"), "{list}");
+    assert!(!list.contains("second line"), "{list}");
+    p.feed(b"2");
+    p.feed(b"\r");
+    assert_eq!(p.screen(), Screen::Editing);
+    assert_eq!(p.state().instruction, "keep");
+    let chosen = p.state().answer.as_ref().unwrap();
+    assert_eq!(chosen.answer_id, "msg_0");
+    assert!(chosen.chosen);
+    assert_eq!(svc.sent(), 0);
+    assert_eq!(p.feed(b"\r"), Flow::Quit);
+    assert_eq!(svc.sent_answers.borrow()[0], ("msg_0".to_string(), true));
+}
+
+#[test]
+fn the_answer_list_can_be_left_or_closed() {
+    let svc = FakeService::new();
+    let mut p = editing(&svc);
+    p.feed(b"\x0f");
+    p.feed(b"2");
+    p.feed(b"\x0f"); // back without choosing
+    assert_eq!(p.screen(), Screen::Editing);
+    assert_eq!(p.state().answer.as_ref().unwrap().answer_id, "msg_1");
+    assert!(!p.state().answer.as_ref().unwrap().chosen);
+    p.feed(b"\x0f");
+    p.feed(b"\x1b");
+    assert_eq!(p.expire(), Flow::Quit);
+    assert_eq!(svc.sent(), 0);
+}
+
+#[test]
+fn reload_goes_back_to_the_latest_answer() {
+    let svc = FakeService::new();
+    let mut p = editing(&svc);
+    p.feed(b"\x0f");
+    p.feed(b"2");
+    p.feed(b"\r");
+    p.feed(b"\x12"); // Ctrl+R
+    let a = p.state().answer.as_ref().unwrap();
+    assert_eq!(a.answer_id, "msg_1");
+    assert!(!a.chosen);
 }

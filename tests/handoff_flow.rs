@@ -96,6 +96,19 @@ struct FakeAdapter {
     answer: RefCell<Result<(String, String), HandoffError>>,
     /// The transcript `resolve` finds (a Codex rewind starts a new file).
     path: RefCell<PathBuf>,
+    /// Older answers, newest first, below the latest one.
+    older: RefCell<Vec<(String, String)>>,
+}
+
+fn snap(session: &ResolvedSession, id: &str, text: &str) -> AnswerSnapshot {
+    AnswerSnapshot {
+        session: session.clone(),
+        source_fingerprint: format!("fp-{id}"),
+        answer_id: id.into(),
+        text: text.into(),
+        finished_at: None,
+        chosen: false,
+    }
 }
 
 impl AnswerAdapter for FakeAdapter {
@@ -112,12 +125,21 @@ impl AnswerAdapter for FakeAdapter {
         _: &ReadLimits,
     ) -> Result<AnswerSnapshot, HandoffError> {
         let (id, text) = self.answer.borrow().clone()?;
-        Ok(AnswerSnapshot {
-            session: session.clone(),
-            source_fingerprint: format!("fp-{id}"),
-            answer_id: id,
-            text,
-        })
+        Ok(snap(session, &id, &text))
+    }
+    fn completed_answers(
+        &self,
+        session: &ResolvedSession,
+        _: &ReadLimits,
+        max: usize,
+    ) -> Result<Vec<AnswerSnapshot>, HandoffError> {
+        let latest = self.answer.borrow().clone().ok();
+        Ok(latest
+            .into_iter()
+            .chain(self.older.borrow().iter().cloned())
+            .map(|(id, text)| snap(session, &id, &text))
+            .take(max)
+            .collect())
     }
 }
 
@@ -145,6 +167,7 @@ impl World {
                     "## 回答\n\n```rust\nfn main() {}\n```\n日本語".into(),
                 ))),
                 path: RefCell::new(PathBuf::from("/fake.jsonl")),
+                older: RefCell::new(vec![("msg_0".into(), "an older answer".into())]),
             }),
             config: Config::defaults(std::path::Path::new("/home/user")),
         }
@@ -428,4 +451,58 @@ fn empty_instruction_sends_label_and_answer() {
         "{prompt}"
     );
     assert!(prompt.contains("the answer"));
+}
+
+#[test]
+fn answers_lists_the_history_of_a_ready_source() {
+    let w = World::new();
+    let answers = w.service().answers(w.herdr.binding("w1:pA")).unwrap();
+    let ids: Vec<&str> = answers.iter().map(|a| a.answer_id.as_str()).collect();
+    assert_eq!(ids, ["msg_1", "msg_0"]);
+    w.herdr
+        .set("w1:pA", |a| a["agent_status"] = json!("working"));
+    let err = w.service().answers(w.herdr.binding("w1:pA")).unwrap_err();
+    assert!(matches!(err, HandoffError::AgentNotReady(_)), "{err:?}");
+}
+
+#[test]
+fn chosen_older_answer_is_sent_after_a_newer_one_appears() {
+    let w = World::new();
+    let mut older = w
+        .service()
+        .answers(w.herdr.binding("w1:pA"))
+        .unwrap()
+        .remove(1);
+    older.chosen = true;
+    // A newer answer arrives; the chosen one is still in the conversation.
+    w.set_answer("msg_2", "the newest");
+    w.adapters
+        .0
+        .older
+        .borrow_mut()
+        .insert(0, ("msg_1".into(), "previous".into()));
+    let outcome = w
+        .service()
+        .send(&older, &w.herdr.binding("w1:pB"), "go")
+        .unwrap();
+    assert_eq!(outcome, SendOutcome::Accepted);
+    assert!(w.herdr.prompts.borrow()[0].1.contains("an older answer"));
+}
+
+#[test]
+fn chosen_answer_no_longer_in_the_conversation_blocks_send() {
+    let w = World::new();
+    let mut older = w
+        .service()
+        .answers(w.herdr.binding("w1:pA"))
+        .unwrap()
+        .remove(1);
+    older.chosen = true;
+    w.adapters.0.older.borrow_mut().clear(); // rewound away
+    let err = w
+        .service()
+        .send(&older, &w.herdr.binding("w1:pB"), "go")
+        .unwrap_err();
+    assert!(matches!(err, HandoffError::SourceChanged(_)), "{err:?}");
+    assert_eq!(w.herdr.sent(), 0);
 }

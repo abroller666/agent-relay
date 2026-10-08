@@ -298,3 +298,89 @@ fn missing_rollout_is_unavailable() {
         matches!(e, HandoffError::TranscriptUnavailable(_))
     });
 }
+
+impl Setup {
+    fn history(&self, id: &str) -> Result<Vec<AnswerSnapshot>, HandoffError> {
+        let binding = PaneBinding {
+            server_key: "srv".into(),
+            pane_id: "w4:p3".into(),
+            terminal_id: "term_3".into(),
+            tab_id: "w4:t1".into(),
+            agent: AgentKind::Codex,
+            session: SessionRef {
+                kind: "id".into(),
+                value: id.into(),
+            },
+        };
+        let adapter = CodexAdapter;
+        let session = adapter.resolve(&binding, &self.config)?;
+        adapter.completed_answers(&session, &self.config.limits, 50)
+    }
+}
+
+fn texts(answers: &[AnswerSnapshot]) -> Vec<String> {
+    answers
+        .iter()
+        .map(|a| a.text.lines().next().unwrap_or_default().to_string())
+        .collect()
+}
+
+#[test]
+fn history_follows_the_rewind_into_the_base_file() {
+    // KILO-TWO (ordinal 53+) was rewound away; the interrupted turn has
+    // no answer.
+    let s = Setup::new().fixture(REWOUND, None).fixture(SEGMENT, None);
+    let all = s.history(REWOUND_ID).unwrap();
+    assert_eq!(
+        texts(&all),
+        [
+            "NOVEMBER-RESUME",
+            "LIMA-THREE",
+            "JULIET-ONE",
+            "## 結果",
+            "CHARLIE-THREE"
+        ]
+    );
+    let latest = s.latest(REWOUND_ID).unwrap();
+    assert_eq!(all[0].answer_id, latest.answer_id);
+    assert_eq!(all[0].source_fingerprint, latest.source_fingerprint);
+    assert!(all.iter().all(|a| a.finished_at.is_some()));
+
+    // Right after the rewind, before any new prompt.
+    let just_rewound = Setup::new()
+        .fixture(REWOUND, None)
+        .fixture(SEGMENT, Some(3));
+    assert_eq!(
+        texts(&just_rewound.history(REWOUND_ID).unwrap()),
+        ["JULIET-ONE", "## 結果", "CHARLIE-THREE"]
+    );
+}
+
+#[test]
+fn history_of_a_fork_continues_into_its_parent() {
+    let s = Setup::new().fixture(PLAIN, None).fixture(FORK, None);
+    assert_eq!(
+        texts(&s.history(FORK_ID).unwrap()),
+        [
+            "MULTI-OK1209",
+            "MULTI-OK3",
+            "MIKE-FORK",
+            "- `pwd` を実行しました。",
+            "DELTA-FOUR"
+        ]
+    );
+    let fresh = Setup::new().fixture(PLAIN, None).fixture(FORK, Some(2));
+    assert_eq!(
+        texts(&fresh.history(FORK_ID).unwrap()),
+        ["- `pwd` を実行しました。", "DELTA-FOUR"]
+    );
+}
+
+#[test]
+fn history_while_a_turn_runs_lists_the_earlier_answers() {
+    let s = Setup::new().fixture(REWOUND, Some(49));
+    assert_eq!(
+        texts(&s.history(REWOUND_ID).unwrap()),
+        ["## 結果", "CHARLIE-THREE"]
+    );
+}

@@ -29,6 +29,8 @@ pub enum Screen {
     Loading,
     Selecting,
     Editing,
+    /// Choosing which of the source's answers to send.
+    Answers,
     Sending,
     Sent,
     DeliveryUnknown,
@@ -68,6 +70,8 @@ pub trait PopupService {
         target: &PaneBinding,
         instruction: &str,
     ) -> Result<SendOutcome, HandoffError>;
+    /// The source's finished answers, newest first.
+    fn answers(&self, source: &PaneBinding) -> Result<Vec<AnswerSnapshot>, HandoffError>;
     /// The other panes of the source's tab, in screen order.
     fn targets(&self, source: &PaneBinding) -> Result<Vec<TargetRow>, HandoffError>;
     /// How to name `pane` on screen (see `display_name`), if known.
@@ -85,6 +89,9 @@ pub struct Popup<'a> {
     editor: Editor,
     picker: Picker,
     rows: Vec<TargetRow>,
+    /// The answers offered by Ctrl+O, newest first.
+    history: Vec<AnswerSnapshot>,
+    answer_picker: Picker,
     /// How the source and the target are named on screen.
     source_display: Option<String>,
     target_display: Option<String>,
@@ -123,6 +130,8 @@ impl<'a> Popup<'a> {
             editor,
             picker: Picker::default(),
             rows: Vec::new(),
+            history: Vec::new(),
+            answer_picker: Picker::default(),
             source_display: None,
             target_display: None,
             message,
@@ -265,6 +274,11 @@ impl<'a> Popup<'a> {
                         return Flow::Quit;
                     }
                 }
+                Screen::Answers => {
+                    if self.choose(&key) == Flow::Quit {
+                        return Flow::Quit;
+                    }
+                }
                 Screen::Editing => {
                     // An accepted send closes the popup at once.
                     if self.edit(key) == Flow::Quit || self.state.screen == Screen::Sent {
@@ -280,6 +294,57 @@ impl<'a> Popup<'a> {
         }
         self.state.instruction = self.editor.text();
         self.state.cursor = self.editor.cursor();
+        Flow::Continue
+    }
+
+    fn open_answers(&mut self) {
+        let Some(source) = self.state.source.clone() else {
+            return;
+        };
+        match self.svc.answers(&source) {
+            Ok(list) if !list.is_empty() => {
+                let current = self
+                    .state
+                    .answer
+                    .as_ref()
+                    .and_then(|a| list.iter().position(|h| h.answer_id == a.answer_id));
+                self.history = list;
+                self.answer_picker = Picker::at(current.unwrap_or(0));
+                self.state.screen = Screen::Answers;
+                self.message = None;
+            }
+            Ok(_) => {
+                self.message = Some(Message {
+                    text: "no finished answers yet".into(),
+                    error: true,
+                });
+            }
+            Err(e) => {
+                self.message = Some(Message {
+                    text: e.to_string(),
+                    error: true,
+                });
+            }
+        }
+    }
+
+    fn choose(&mut self, key: &Key) -> Flow {
+        if *key == Key::Answers {
+            self.state.screen = Screen::Editing;
+            return Flow::Continue;
+        }
+        match self.answer_picker.handle(key, self.history.len()) {
+            Pick::Stay => {}
+            Pick::Quit => return Flow::Quit,
+            Pick::Back => self.state.screen = Screen::Editing,
+            Pick::Confirm(i) => {
+                let mut answer = self.history[i].clone();
+                answer.chosen = true;
+                self.state.answer = Some(answer);
+                self.state.screen = Screen::Editing;
+                self.message = None;
+            }
+        }
         Flow::Continue
     }
 
@@ -342,6 +407,7 @@ impl<'a> Popup<'a> {
                 self.open_picker();
             }
             Key::Reload => self.reload_answer(),
+            Key::Answers => self.open_answers(),
             Key::Quit => return Flow::Quit,
             Key::Esc => return Flow::Quit,
         }
@@ -369,10 +435,13 @@ impl<'a> Popup<'a> {
                 self.state.screen = Screen::Editing;
                 self.reload_answer();
                 if self.state.answer.is_some() {
+                    let text = if answer.chosen {
+                        "The chosen answer is no longer in the conversation; showing the latest. Review it, then press Enter to send"
+                    } else {
+                        "The answer was updated. Review the new answer, then press Enter to send"
+                    };
                     self.message = Some(Message {
-                        text:
-                            "The answer was updated. Review the new answer, then press Enter to send"
-                                .into(),
+                        text: text.into(),
                         error: false,
                     });
                 }
@@ -412,6 +481,7 @@ impl<'a> Popup<'a> {
                 lines.push(dim("press any key to close"));
             }
             Screen::Selecting => self.draw_picker(&mut lines, cols, rows),
+            Screen::Answers => self.draw_answers(&mut lines, cols, rows),
             Screen::Editing | Screen::Sending => {
                 cursor = self.draw_editor(&mut lines, cols, rows);
             }
@@ -460,6 +530,59 @@ impl<'a> Popup<'a> {
             (Some(name), Some(_)) => name.clone(),
             (_, Some(b)) => b.agent.display_name().into(),
             (_, None) => "(none)".into(),
+        }
+    }
+
+    fn draw_answers(&mut self, lines: &mut Vec<String>, cols: usize, rows: usize) {
+        lines.push(format!(
+            "{}  {}",
+            bold(&format!(
+                "Choose the answer (from {})",
+                fit_name(
+                    &self.source_name(),
+                    cols.saturating_sub("Choose the answer (from )".width())
+                )
+            )),
+            dim("↑↓/jk: move  1-9/␣: pick  ⏎: choose  C-o: back  Esc/C-g: quit")
+        ));
+        let space = rows.saturating_sub(1).max(1);
+        let shown = self.answer_picker.window(self.history.len(), space);
+        for i in shown {
+            let a = &self.history[i];
+            let number = if i < 9 {
+                (i + 1).to_string()
+            } else {
+                " ".into()
+            };
+            let mark = if i == self.answer_picker.cursor {
+                "●"
+            } else {
+                "○"
+            };
+            let when = a
+                .finished_at
+                .as_deref()
+                .and_then(local_time)
+                .unwrap_or_else(|| " ".repeat(11));
+            let first = a
+                .text
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty())
+                .unwrap_or_default();
+            let tail = format!(
+                "  {}{}",
+                size(a.text.len()),
+                if i == 0 { "  (latest)" } else { "" }
+            );
+            let head = format!("{mark} {number} {when}  ");
+            let room = cols.saturating_sub(head.width() + tail.width());
+            let text = format!("{head}{}{tail}", fit(&sanitize(first), room));
+            lines.push(if i == self.answer_picker.cursor {
+                format!("\x1b[7m{text}\x1b[0m")
+            } else {
+                text
+            });
         }
     }
 
@@ -532,7 +655,12 @@ impl<'a> Popup<'a> {
     ) -> Option<(usize, usize)> {
         let (status, styled) = match &self.state.answer {
             Some(a) => {
-                let s = format!("answer {} ✓", size(a.text.len()));
+                // A hand-picked answer shows when it was written.
+                let when = match a.finished_at.as_deref().and_then(local_time) {
+                    Some(t) if a.chosen => format!("{t} "),
+                    _ => String::new(),
+                };
+                let s = format!("answer {when}{} ✓", size(a.text.len()));
                 (s.clone(), green(&s))
             }
             None => ("no answer".to_string(), red("no answer")),
@@ -552,7 +680,7 @@ impl<'a> Popup<'a> {
             (Some(m), _) if m.error => red(&fit(&m.text, cols)),
             (Some(m), _) => yellow(&fit(&m.text, cols)),
             (None, _) => dim(&fit(
-                "⏎: send  M-⏎: newline  C-]: target  C-r: reload  Esc/C-g: quit",
+                "⏎: send  M-⏎: newline  C-o: answers  C-]: target  C-r: reload  Esc/C-g: quit",
                 cols,
             )),
         };
@@ -592,6 +720,46 @@ impl<'a> Popup<'a> {
         lines.push(footer);
         Some((top + cur_row - first, PROMPT.width() + cur_col))
     }
+}
+
+/// An RFC 3339 UTC timestamp (as transcripts write them) in local time,
+/// "MM-DD HH:MM".
+fn local_time(rfc3339: &str) -> Option<String> {
+    let secs = unix_seconds(rfc3339)?;
+    // time_t is 64-bit here but not on every platform.
+    #[allow(clippy::useless_conversion)]
+    let t: nix::libc::time_t = secs.try_into().ok()?;
+    let mut tm: nix::libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: localtime_r only reads `t` and writes the tm we pass.
+    if unsafe { nix::libc::localtime_r(&t, &mut tm) }.is_null() {
+        return None;
+    }
+    Some(format!(
+        "{:02}-{:02} {:02}:{:02}",
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min
+    ))
+}
+
+/// Seconds since the epoch of "YYYY-MM-DDTHH:MM:SS[.fff]Z".
+fn unix_seconds(s: &str) -> Option<i64> {
+    let num = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
+    if s.get(4..5) != Some("-") || s.get(10..11) != Some("T") || !s.ends_with('Z') {
+        return None;
+    }
+    let (y, m, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let (hh, mm, ss) = (num(11..13)?, num(14..16)?, num(17..19)?);
+    // Days from civil (Howard Hinnant's algorithm).
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some(days * 86_400 + hh * 3600 + mm * 60 + ss)
 }
 
 fn size(bytes: usize) -> String {
@@ -720,6 +888,10 @@ impl LiveService<'_> {
 impl PopupService for LiveService<'_> {
     fn prepare(&self, source: &PaneBinding) -> Result<AnswerSnapshot, HandoffError> {
         self.handoff().prepare(source.clone())
+    }
+
+    fn answers(&self, source: &PaneBinding) -> Result<Vec<AnswerSnapshot>, HandoffError> {
+        self.handoff().answers(source.clone())
     }
 
     fn send(
@@ -867,6 +1039,20 @@ mod tests {
         assert_eq!(fit("abcdef", 6), "abcdef");
         assert_eq!(fit("abcdefg", 6), "abcde…");
         assert_eq!(fit("日本語です", 6), "日本…");
+    }
+
+    #[test]
+    fn transcript_timestamps_parse() {
+        assert_eq!(unix_seconds("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(
+            unix_seconds("2026-10-08T00:25:27.875Z"),
+            Some(1_791_419_127)
+        );
+        assert_eq!(
+            unix_seconds("2024-02-29T12:00:00.000Z"),
+            Some(1_709_208_000)
+        );
+        assert_eq!(unix_seconds("garbage"), None);
     }
 
     #[test]

@@ -272,3 +272,55 @@ fn empty_session_has_no_answer() {
     let err = Setup::prefix(MAIN, 4).latest().unwrap_err();
     assert!(matches!(err, HandoffError::NoCompletedAnswer(_)), "{err:?}");
 }
+
+fn texts(answers: &[AnswerSnapshot]) -> Vec<&str> {
+    answers.iter().map(|a| a.text.as_str()).collect()
+}
+
+impl Setup {
+    fn history(&self) -> Result<Vec<AnswerSnapshot>, HandoffError> {
+        let adapter = ClaudeAdapter;
+        let session = adapter.resolve(&self.binding(), &self.config)?;
+        adapter.completed_answers(&session, &self.config.limits, 50)
+    }
+}
+
+#[test]
+fn history_lists_finished_answers_of_the_active_branch_newest_first() {
+    // HOTEL-TWO was rewound away; the interrupted turn has no answer.
+    let all = Setup::prefix(MAIN, 81).history().unwrap();
+    assert_eq!(
+        texts(&all),
+        ["INDIA-THREE", "GOLF-ONE", TOOL_ANSWER, "ALPHA-ONE"]
+    );
+    // The newest entry is the latest answer, with the same identity.
+    let latest = Setup::prefix(MAIN, 81).latest().unwrap();
+    assert_eq!(all[0].answer_id, latest.answer_id);
+    assert_eq!(all[0].source_fingerprint, latest.source_fingerprint);
+    assert!(all.iter().all(|a| a.finished_at.is_some()));
+}
+
+#[test]
+fn history_survives_an_interrupted_latest_turn() {
+    let s = Setup::prefix(MAIN, 56);
+    assert!(s.latest().is_err());
+    assert_eq!(texts(&s.history().unwrap()), [TOOL_ANSWER, "ALPHA-ONE"]);
+}
+
+#[test]
+fn history_while_a_turn_runs_lists_the_earlier_answers() {
+    // 52: a new prompt was submitted and has no answer yet.
+    let s = Setup::prefix(MAIN, 52);
+    assert_eq!(texts(&s.history().unwrap()), [TOOL_ANSWER, "ALPHA-ONE"]);
+}
+
+#[test]
+fn history_is_limited() {
+    let s = Setup::prefix(MAIN, 81);
+    let adapter = ClaudeAdapter;
+    let session = adapter.resolve(&s.binding(), &s.config).unwrap();
+    let two = adapter
+        .completed_answers(&session, &s.config.limits, 2)
+        .unwrap();
+    assert_eq!(texts(&two), ["INDIA-THREE", "GOLF-ONE"]);
+}

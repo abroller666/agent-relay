@@ -81,4 +81,11 @@ pub struct AnswerSnapshot {
     /// Identifies this answer in this transcript: changes when a newer
     /// answer replaces it or its text changes.
     pub source_fingerprint: String,
+    /// When the turn ended, as the transcript records it (RFC 3339).
+    #[serde(default)]
+    pub finished_at: Option<String>,
+    /// Picked by the user from the history rather than taken as the
+    /// latest: sending it does not stop when a newer answer appears.
+    #[serde(default)]
+    pub chosen: bool,
 }

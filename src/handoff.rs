@@ -12,6 +12,9 @@ use crate::herdr::{AgentSnapshot, HerdrApi};
 use crate::model::{AnswerSnapshot, PaneBinding};
 use crate::prompt::build_prompt;
 
+/// How many past answers are offered to choose from.
+pub const MAX_ANSWERS: usize = 50;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SendOutcome {
     /// Herdr accepted the prompt and submitted it. Says nothing about how
@@ -60,6 +63,24 @@ impl<'a> HandoffService<'a> {
         Ok(answer)
     }
 
+    /// The finished answers of `source`, newest first, for choosing one.
+    pub fn answers(&self, source: PaneBinding) -> Result<Vec<AnswerSnapshot>, HandoffError> {
+        let before = self.current_source(&source)?;
+        let adapter = self
+            .adapters
+            .adapter(source.agent)
+            .ok_or_else(|| HandoffError::UnsupportedAgent(source.agent.display_name().into()))?;
+        let session = adapter.resolve(&source, self.config)?;
+        let answers = adapter.completed_answers(&session, &self.config.limits, MAX_ANSWERS)?;
+        let after = self.current_source(&source)?;
+        if after.state_change_seq != before.state_change_seq {
+            return Err(HandoffError::SourceChanged(
+                "the source changed state while its answers were read".into(),
+            ));
+        }
+        Ok(answers)
+    }
+
     /// Checks both panes and the answer again, then sends the prompt once.
     pub fn send(
         &self,
@@ -87,18 +108,30 @@ impl<'a> HandoffService<'a> {
         // Resolve again: a rewind can move the session's history to another
         // file, leaving the rewound answer in the old one.
         let session = adapter.resolve(source, self.config)?;
-        if session.transcript_path != answer.session.transcript_path {
-            return Err(HandoffError::SourceChanged(
-                "the source session moved to another transcript (rewind or fork)".into(),
-            ));
-        }
-        let fresh = adapter.latest_completed(&session, &self.config.limits)?;
-        if fresh.answer_id != answer.answer_id
-            || fresh.source_fingerprint != answer.source_fingerprint
-        {
-            return Err(HandoffError::SourceChanged(
-                "the source has a newer answer; review it before sending".into(),
-            ));
+        let same = |a: &AnswerSnapshot| {
+            a.answer_id == answer.answer_id && a.source_fingerprint == answer.source_fingerprint
+        };
+        if answer.chosen {
+            // An answer picked from the history only has to still be part
+            // of the conversation; newer answers do not matter.
+            let history = adapter.completed_answers(&session, &self.config.limits, usize::MAX)?;
+            if !history.iter().any(same) {
+                return Err(HandoffError::SourceChanged(
+                    "the chosen answer is no longer in the conversation".into(),
+                ));
+            }
+        } else {
+            if session.transcript_path != answer.session.transcript_path {
+                return Err(HandoffError::SourceChanged(
+                    "the source session moved to another transcript (rewind or fork)".into(),
+                ));
+            }
+            let fresh = adapter.latest_completed(&session, &self.config.limits)?;
+            if !same(&fresh) {
+                return Err(HandoffError::SourceChanged(
+                    "the source has a newer answer; review it before sending".into(),
+                ));
+            }
         }
         let now = match self.herdr.agent(&target.pane_id) {
             Ok(now) => now,

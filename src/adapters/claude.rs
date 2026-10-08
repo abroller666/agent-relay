@@ -48,6 +48,15 @@ impl AnswerAdapter for ClaudeAdapter {
     ) -> Result<AnswerSnapshot, HandoffError> {
         with_retries(&limits.retry_delays, || read_latest(session, limits))
     }
+
+    fn completed_answers(
+        &self,
+        session: &ResolvedSession,
+        limits: &ReadLimits,
+        max: usize,
+    ) -> Result<Vec<AnswerSnapshot>, HandoffError> {
+        with_retries(&limits.retry_delays, || read_history(session, limits, max))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +83,7 @@ struct Node {
     parent: Option<String>,
     kind: Kind,
     same_session: bool,
+    timestamp: Option<String>,
     offset: u64,
     len: usize,
 }
@@ -104,12 +114,14 @@ fn user_text(r: &Value) -> Option<&str> {
     }
 }
 
-fn read_latest(
-    session: &ResolvedSession,
-    limits: &ReadLimits,
-) -> Result<AnswerSnapshot, HandoffError> {
-    let path = &session.transcript_path;
-    let mut records = read_records(path, limits)?;
+/// The conversation records of a transcript and the newest of them.
+struct Loaded {
+    nodes: HashMap<String, Node>,
+    leaf: Option<String>,
+}
+
+fn load(session: &ResolvedSession, limits: &ReadLimits) -> Result<Loaded, HandoffError> {
+    let mut records = read_records(&session.transcript_path, limits)?;
     let mut nodes: HashMap<String, Node> = HashMap::new();
     let mut leaf: Option<String> = None;
     for record in records.by_ref() {
@@ -126,6 +138,7 @@ fn read_latest(
             parent: r["parentUuid"].as_str().map(str::to_string),
             kind: kind_of(r),
             same_session: r["sessionId"].as_str() == Some(&session.native_id),
+            timestamp: r["timestamp"].as_str().map(str::to_string),
             offset: record.offset,
             len: record.len,
         });
@@ -135,6 +148,14 @@ fn read_latest(
             "the transcript is still being written".into(),
         ));
     }
+    Ok(Loaded { nodes, leaf })
+}
+
+fn read_latest(
+    session: &ResolvedSession,
+    limits: &ReadLimits,
+) -> Result<AnswerSnapshot, HandoffError> {
+    let Loaded { nodes, leaf } = load(session, limits)?;
     let Some(leaf) = leaf else {
         return Err(HandoffError::NoCompletedAnswer(
             "this session has no answer yet".into(),
@@ -151,7 +172,7 @@ fn read_latest(
         cur = chain.parent(cur.1)?;
     }
     let turn_end = match &cur.1.kind {
-        Kind::TurnDuration => cur.0.to_string(),
+        Kind::TurnDuration => cur,
         Kind::User { interrupted: true } => return Err(interrupted()),
         _ => {
             return Err(HandoffError::CompletionUncertain(
@@ -160,7 +181,7 @@ fn read_latest(
         }
     };
     // Back from the end of the turn to its last message.
-    let mut cur = chain.parent(cur.1)?;
+    let mut cur = chain.parent(turn_end.1)?;
     while cur.1.kind == Kind::Aside {
         cur = chain.parent(cur.1)?;
     }
@@ -191,27 +212,112 @@ fn read_latest(
             ));
         }
     };
-    // The records of that message, newest first.
+    let (parts, _) = message_parts(&mut chain, cur, &message_id)?;
+    snapshot(session, turn_end, &message_id, &parts)?
+        .ok_or_else(|| HandoffError::NoCompletedAnswer("the answer is empty".into()))
+}
+
+/// The finished answers of the active branch, newest first, at most `max`.
+/// Turns that ended without an answer (interrupted, failed, empty) and a
+/// turn still running are left out.
+fn read_history(
+    session: &ResolvedSession,
+    limits: &ReadLimits,
+    max: usize,
+) -> Result<Vec<AnswerSnapshot>, HandoffError> {
+    let Loaded { nodes, leaf } = load(session, limits)?;
+    let mut chain = Chain {
+        nodes: &nodes,
+        steps: 0,
+    };
+    let mut answers = Vec::new();
+    let mut next = leaf.as_deref().and_then(|l| chain.node(l).ok());
+    while let Some(cur) = next {
+        if answers.len() >= max {
+            break;
+        }
+        if cur.1.kind != Kind::TurnDuration {
+            next = chain.parent(cur.1).ok();
+            continue;
+        }
+        let turn_end = cur;
+        let mut cur = match chain.parent(turn_end.1) {
+            Ok(c) => c,
+            Err(_) => break,
+        };
+        while cur.1.kind == Kind::Aside {
+            match chain.parent(cur.1) {
+                Ok(c) => cur = c,
+                Err(_) => break,
+            }
+        }
+        let finished = match &cur.1.kind {
+            Kind::Assistant {
+                message_id,
+                stop_reason,
+                api_error: false,
+            } if stop_reason.as_deref() == Some("end_turn") && !message_id.is_empty() => {
+                Some(message_id.clone())
+            }
+            _ => None,
+        };
+        next = Some(cur);
+        if let Some(message_id) = finished {
+            let (parts, first) = message_parts(&mut chain, cur, &message_id)?;
+            if let Some(answer) = snapshot(session, turn_end, &message_id, &parts)? {
+                answers.push(answer);
+            }
+            next = Some(first);
+        }
+        next = next.and_then(|n| chain.parent(n.1).ok());
+    }
+    Ok(answers)
+}
+
+type Entry<'a> = (&'a str, &'a Node);
+
+/// The records of message `message_id` ending at `last`, newest first, and
+/// its first record.
+fn message_parts<'a>(
+    chain: &mut Chain<'a>,
+    last: Entry<'a>,
+    message_id: &str,
+) -> Result<(Vec<&'a Node>, Entry<'a>), HandoffError> {
     let mut parts = Vec::new();
+    let mut cur = last;
+    let mut first = last;
     loop {
         match &cur.1.kind {
-            Kind::Assistant { message_id: id, .. } if *id == message_id => parts.push(cur.1),
+            Kind::Assistant { message_id: id, .. } if id == message_id => {
+                parts.push(cur.1);
+                first = cur;
+            }
             _ => break,
         }
         match cur.1.parent.as_deref() {
-            Some(p) if nodes.contains_key(p) => cur = chain.node(p)?,
+            Some(p) if chain.nodes.contains_key(p) => cur = chain.node(p)?,
             _ => break,
         }
     }
-    if parts.iter().any(|n| !n.same_session) || !chain.node(&turn_end)?.1.same_session {
+    Ok((parts, first))
+}
+
+/// The answer made of `parts` (newest first), ended by `turn_end`; None
+/// when it has no text.
+fn snapshot(
+    session: &ResolvedSession,
+    turn_end: Entry<'_>,
+    message_id: &str,
+    parts: &[&Node],
+) -> Result<Option<AnswerSnapshot>, HandoffError> {
+    if parts.iter().any(|n| !n.same_session) || !turn_end.1.same_session {
         return Err(HandoffError::UnsupportedTranscript(
             "transcript sessionId does not match the Herdr session".into(),
         ));
     }
-
     let mut text = String::new();
     for node in parts.iter().rev() {
-        let r = read_at(path, node.offset, node.len)?;
+        let r = read_at(&session.transcript_path, node.offset, node.len)?;
         for block in r["message"]["content"].as_array().into_iter().flatten() {
             if block["type"] == "text" {
                 append_block(&mut text, block["text"].as_str().unwrap_or_default());
@@ -219,16 +325,16 @@ fn read_latest(
         }
     }
     if text.trim().is_empty() {
-        return Err(HandoffError::NoCompletedAnswer(
-            "the answer is empty".into(),
-        ));
+        return Ok(None);
     }
-    Ok(AnswerSnapshot {
-        source_fingerprint: fingerprint(&[&session.native_id, &turn_end, &message_id, &text]),
+    Ok(Some(AnswerSnapshot {
+        source_fingerprint: fingerprint(&[&session.native_id, turn_end.0, message_id, &text]),
         session: session.clone(),
-        answer_id: message_id,
+        answer_id: message_id.to_string(),
         text,
-    })
+        finished_at: turn_end.1.timestamp.clone(),
+        chosen: false,
+    }))
 }
 
 fn interrupted() -> HandoffError {
