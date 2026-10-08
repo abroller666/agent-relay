@@ -357,13 +357,6 @@ impl<'a> Popup<'a> {
             });
             return;
         };
-        if instruction.trim().is_empty() {
-            self.message = Some(Message {
-                text: "type an instruction first".into(),
-                error: true,
-            });
-            return;
-        }
         self.state.screen = Screen::Sending;
         self.discard_input = true;
         self.just_sent = true;

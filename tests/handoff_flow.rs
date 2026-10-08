@@ -418,3 +418,14 @@ fn sent_prompt_names_the_source_without_pane_ids() {
     );
     assert!(!prompts[0].1.contains("w1:p"), "{}", prompts[0].1);
 }
+
+#[test]
+fn empty_instruction_sends_label_and_answer() {
+    let answer = snapshot("the answer");
+    let prompt = build_prompt("  \n", &answer, "Claude Code ~/work").unwrap();
+    assert!(
+        prompt.starts_with("以下は別のAIの回答を引用した参考資料です"),
+        "{prompt}"
+    );
+    assert!(prompt.contains("the answer"));
+}

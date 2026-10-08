@@ -151,12 +151,13 @@ fn enter_sends_once() {
 }
 
 #[test]
-fn empty_instruction_is_not_sent() {
+fn empty_instruction_sends_the_answer_alone() {
     let svc = FakeService::new();
     let mut p = editing(&svc);
     p.feed(b"\r");
-    assert_eq!(svc.sent(), 0);
-    assert_eq!(p.screen(), Screen::Editing);
+    assert_eq!(svc.sent(), 1);
+    assert_eq!(svc.sends.borrow()[0].1, "");
+    assert_eq!(p.screen(), Screen::Sent);
 }
 
 #[test]
@@ -395,8 +396,6 @@ fn menus_are_english() {
     p.feed(b"1");
     p.feed(b"\r");
     screens.push(p.render(100, 20)); // editor, empty
-    p.feed(b"\r"); // empty instruction
-    screens.push(p.render(100, 20));
     *svc.answer.borrow_mut() = Err(HandoffError::CompletionUncertain("x".into()));
     p.feed(b"\x12");
     screens.push(p.render(100, 20)); // answer missing
