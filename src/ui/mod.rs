@@ -1016,14 +1016,20 @@ impl LiveService<'_> {
                         })
                     }
                 }
-                Err(HandoffError::SessionUnavailable(_)) => {
-                    Some("session unknown (send it one prompt first)".to_string())
-                }
-                Err(e) => Some(e.to_string()),
+                Err(e) => Some(unavailable_reason(&e)),
             }
         };
         row.unavailable = reason;
         row
+    }
+}
+
+/// Why a pane cannot be picked as the target, short enough for its row.
+pub fn unavailable_reason(e: &HandoffError) -> String {
+    match e {
+        HandoffError::SessionUnavailable(_) => "session unknown (send it one prompt first)".into(),
+        HandoffError::ThreadNameShared(_) => "same name as another Codex: /rename one".into(),
+        e => e.to_string(),
     }
 }
 

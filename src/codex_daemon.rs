@@ -152,10 +152,7 @@ pub fn match_thread(
     match found.as_slice() {
         [one] => Ok(one.id.clone()),
         [] => Err(unknown()),
-        many => Err(HandoffError::SessionAmbiguous(format!(
-            "{} Codex threads in this directory are named {name:?}; rename one",
-            many.len()
-        ))),
+        _ => Err(HandoffError::ThreadNameShared(name.to_string())),
     }
 }
 

@@ -438,6 +438,7 @@ fn error_messages_are_english() {
         HandoffError::UnsupportedAgent(String::new()),
         HandoffError::SessionUnavailable(String::new()),
         HandoffError::SessionAmbiguous(String::new()),
+        HandoffError::ThreadNameShared(String::new()),
         HandoffError::TranscriptUnavailable(String::new()),
         HandoffError::UnsupportedTranscript(String::new()),
         HandoffError::CompletionUncertain(String::new()),

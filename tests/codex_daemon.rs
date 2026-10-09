@@ -52,7 +52,14 @@ fn two_threads_with_the_same_name_are_ambiguous() {
         thread(T2, Some("Fix the parser"), CWD),
     ];
     let err = match_thread(&threads, "Fix the parser | app", CWD).unwrap_err();
-    assert!(matches!(err, HandoffError::SessionAmbiguous(_)), "{err:?}");
+    assert!(matches!(err, HandoffError::ThreadNameShared(_)), "{err:?}");
+    // The message says what to do, first, so a cut-off line still says it.
+    let text = err.to_string();
+    assert!(text.contains("/rename"), "{text}");
+    assert!(text.contains("Fix the parser"), "{text}");
+    let reason = agent_relay::ui::unavailable_reason(&err);
+    assert!(reason.contains("/rename"), "{reason}");
+    assert!(reason.chars().count() <= 40, "{reason}");
 }
 
 #[test]

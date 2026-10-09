@@ -12,6 +12,9 @@ pub enum HandoffError {
     SessionUnavailable(String),
     /// More than one transcript matches the session reference.
     SessionAmbiguous(String),
+    /// Two Codex threads in the pane's directory carry the name in its
+    /// title, so the title cannot tell which one the pane shows (the name).
+    ThreadNameShared(String),
     /// No transcript matches the session reference.
     TranscriptUnavailable(String),
     /// The transcript uses a shape this adapter has not been verified on.
@@ -58,6 +61,12 @@ impl fmt::Display for HandoffError {
             Self::UnsupportedAgent(d) => ("Unsupported agent", d),
             Self::SessionUnavailable(d) => ("No session registered in Herdr", d),
             Self::SessionAmbiguous(d) => ("More than one transcript matches the session", d),
+            Self::ThreadNameShared(name) => {
+                return write!(
+                    f,
+                    "Run /rename in one of the Codex panes: another Codex thread in this directory is also named {name:?}"
+                );
+            }
             Self::TranscriptUnavailable(d) => ("Session transcript not found", d),
             Self::UnsupportedTranscript(d) => ("Unsupported transcript format", d),
             Self::CompletionUncertain(d) => ("Cannot confirm the answer is finished", d),
