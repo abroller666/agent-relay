@@ -62,8 +62,21 @@ pub fn resolve_agent(
     let Some(daemon) = daemon.filter(|_| info["agent"] == "codex") else {
         return reported;
     };
-    let processes = herdr.foreground_processes(pane_id).unwrap_or_default();
+    // How this pane's Codex was started decides what can be trusted; when
+    // that cannot be seen, nothing is (it may run --no-daemon beside a
+    // daemon thread of the same name).
+    let launch_unknown = || {
+        HandoffError::SessionUnavailable(
+            "cannot tell how Codex was started in this pane (no process information)".into(),
+        )
+    };
+    let processes = herdr
+        .foreground_processes(pane_id)
+        .map_err(|_| launch_unknown())?;
     let codex: Vec<&PaneProcess> = processes.iter().filter(|p| is_codex(p)).collect();
+    if codex.is_empty() {
+        return Err(launch_unknown());
+    }
     // Herdr's report stands only when the pane's own Codex process writes
     // the thread it names. `codex --no-daemon` writes its rollout itself;
     // on the daemon, the daemon does. Where it came from cannot be told
@@ -146,11 +159,14 @@ pub fn match_thread(
     }
 }
 
+/// Whether `p` is Codex: its program, or the script its interpreter runs
+/// (`node …/codex.js` when installed through npm), is named codex.
 fn is_codex(p: &PaneProcess) -> bool {
-    p.argv
-        .first()
-        .and_then(|a| Path::new(a).file_name())
-        .is_some_and(|n| n.to_string_lossy().starts_with("codex"))
+    p.argv.iter().take(2).any(|a| {
+        Path::new(a)
+            .file_name()
+            .is_some_and(|n| n.to_string_lossy().starts_with("codex"))
+    })
 }
 
 /// Whether one of `processes` has a rollout file of thread `id` open.

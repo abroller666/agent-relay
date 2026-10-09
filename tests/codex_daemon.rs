@@ -100,6 +100,8 @@ fn rollout(id: &str) -> PathBuf {
 struct Herdr {
     info: RefCell<Value>,
     argv: RefCell<Vec<String>>,
+    /// `pane.process_info` fails.
+    no_process_info: RefCell<bool>,
 }
 
 impl HerdrApi for Herdr {
@@ -119,6 +121,9 @@ impl HerdrApi for Herdr {
         Err(HandoffError::Herdr("no layout".into()))
     }
     fn foreground_processes(&self, _: &str) -> Result<Vec<PaneProcess>, HandoffError> {
+        if *self.no_process_info.borrow() {
+            return Err(HandoffError::Herdr("process info unavailable".into()));
+        }
         Ok(vec![PaneProcess {
             pid: 42,
             argv: self.argv.borrow().clone(),
@@ -144,6 +149,7 @@ fn codex_pane(session: Option<&str>) -> Herdr {
     Herdr {
         info: RefCell::new(info),
         argv: RefCell::new(argv(&["codex"])),
+        no_process_info: RefCell::new(false),
     }
 }
 
@@ -314,6 +320,7 @@ fn claude_panes_never_ask_the_daemon() {
                               "value": "c07c63dd-285d-4412-bb32-5654dd417828"},
         })),
         argv: RefCell::new(argv(&["claude"])),
+        no_process_info: RefCell::new(false),
     };
     let d = daemon_down(DaemonError::Failed("must not be called".into()));
     let agent = resolve_agent(&herdr, Some(&d), "w1:p1").unwrap();
@@ -321,4 +328,59 @@ fn claude_panes_never_ask_the_daemon() {
         agent.binding.session.value,
         "c07c63dd-285d-4412-bb32-5654dd417828"
     );
+}
+
+#[test]
+fn an_unknown_launch_mode_never_reaches_the_title_match() {
+    // The pane may run `codex --no-daemon` (thread T3) while the daemon
+    // has a thread of the same name and directory (T1): without process
+    // information that cannot be ruled out.
+    let d = daemon(vec![thread(T1, Some("Fix the parser"), CWD)]);
+    let herdr = codex_pane(None);
+    *herdr.no_process_info.borrow_mut() = true;
+    let err = resolve_agent(&herdr, Some(&d), "w1:p5").unwrap_err();
+    assert!(
+        matches!(err, HandoffError::SessionUnavailable(_)),
+        "{err:?}"
+    );
+    // Herdr may leave argv out.
+    let herdr = codex_pane(None);
+    *herdr.argv.borrow_mut() = Vec::new();
+    let err = resolve_agent(&herdr, Some(&d), "w1:p5").unwrap_err();
+    assert!(
+        matches!(err, HandoffError::SessionUnavailable(_)),
+        "{err:?}"
+    );
+    // A foreground process that is not Codex at all.
+    let herdr = codex_pane(None);
+    *herdr.argv.borrow_mut() = argv(&["zsh"]);
+    let err = resolve_agent(&herdr, Some(&d), "w1:p5").unwrap_err();
+    assert!(
+        matches!(err, HandoffError::SessionUnavailable(_)),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn codex_installed_through_npm_is_recognized() {
+    let d = daemon(vec![thread(T1, Some("Fix the parser"), CWD)]);
+    let herdr = codex_pane(None);
+    *herdr.argv.borrow_mut() = argv(&[
+        "node",
+        "/usr/local/lib/node_modules/@openai/codex/bin/codex.js",
+    ]);
+    assert_eq!(
+        resolve_agent(&herdr, Some(&d), "w1:p5")
+            .unwrap()
+            .binding
+            .session
+            .value,
+        T1
+    );
+    *herdr.argv.borrow_mut() = argv(&[
+        "node",
+        "/usr/local/lib/node_modules/@openai/codex/bin/codex.js",
+        "--no-daemon",
+    ]);
+    assert!(resolve_agent(&herdr, Some(&d), "w1:p5").is_err());
 }

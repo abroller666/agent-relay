@@ -89,6 +89,19 @@ impl HerdrApi for FakeHerdr {
     fn layout(&self, _pane_id: &str) -> Result<Layout, HandoffError> {
         Err(HandoffError::Herdr("no layout".into()))
     }
+    fn foreground_processes(
+        &self,
+        pane_id: &str,
+    ) -> Result<Vec<agent_relay::herdr::PaneProcess>, HandoffError> {
+        let agent = self.agent_info(pane_id)?["agent"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        Ok(vec![agent_relay::herdr::PaneProcess {
+            pid: 7,
+            argv: vec![agent],
+        }])
+    }
 }
 
 /// An adapter whose "transcript" is whatever the test puts in `answer`.
