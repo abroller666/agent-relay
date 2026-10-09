@@ -26,7 +26,6 @@ pub fn validate_session_id(id: &str) -> Result<(), HandoffError> {
 /// The binding for an `AgentInfo` object from `agent.get` / `agent.list`.
 pub fn binding_from_agent(info: &Value, server_key: &str) -> Result<PaneBinding, HandoffError> {
     let str_field = |key: &str| info.get(key).and_then(Value::as_str);
-    let pane_id = str_field("pane_id").unwrap_or_default();
     let agent_name = str_field("agent").unwrap_or_default();
     let Some(agent) = AgentKind::from_herdr(agent_name) else {
         let shown = if agent_name.is_empty() {
@@ -55,8 +54,27 @@ pub fn binding_from_agent(info: &Value, server_key: &str) -> Result<PaneBinding,
         )));
     }
     validate_session_id(s("value"))?;
-    let terminal_id = str_field("terminal_id").unwrap_or_default();
-    let tab_id = str_field("tab_id").unwrap_or_default();
+    occupant_binding(
+        info,
+        server_key,
+        agent,
+        SessionRef {
+            kind: "id".into(),
+            value: s("value").to_string(),
+        },
+    )
+}
+
+/// The binding of the agent in the pane `info` describes, with `session`
+/// standing for what occupies it.
+pub fn occupant_binding(
+    info: &Value,
+    server_key: &str,
+    agent: AgentKind,
+    session: SessionRef,
+) -> Result<PaneBinding, HandoffError> {
+    let str_field = |key: &str| info.get(key).and_then(Value::as_str).unwrap_or_default();
+    let (pane_id, terminal_id) = (str_field("pane_id"), str_field("terminal_id"));
     if pane_id.is_empty() || terminal_id.is_empty() {
         return Err(HandoffError::Herdr("incomplete pane information".into()));
     }
@@ -64,12 +82,9 @@ pub fn binding_from_agent(info: &Value, server_key: &str) -> Result<PaneBinding,
         server_key: server_key.to_string(),
         pane_id: pane_id.to_string(),
         terminal_id: terminal_id.to_string(),
-        tab_id: tab_id.to_string(),
+        tab_id: str_field("tab_id").to_string(),
         agent,
-        session: SessionRef {
-            kind: "id".into(),
-            value: s("value").to_string(),
-        },
+        session,
     })
 }
 

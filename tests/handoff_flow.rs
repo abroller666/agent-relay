@@ -99,8 +99,9 @@ impl HerdrApi for FakeHerdr {
             .as_str()
             .unwrap_or_default()
             .to_string();
+        let pid = self.agent_info(pane_id)?["test_pid"].as_u64().unwrap_or(7) as u32;
         Ok(vec![agent_relay::herdr::PaneProcess {
-            pid: 7,
+            pid,
             argv: vec![agent],
         }])
     }
@@ -205,6 +206,11 @@ impl World {
         HandoffService::new(&self.herdr, &self.adapters, &self.config)
     }
 
+    /// `pane` as the popup binds a target it lists.
+    fn target(&self, pane: &str) -> PaneBinding {
+        self.service().target(pane).unwrap().binding
+    }
+
     fn set_answer(&self, id: &str, text: &str) {
         *self.adapters.0.answer.borrow_mut() = Ok((id.into(), text.into()));
     }
@@ -214,7 +220,7 @@ impl World {
 fn send_once() {
     let w = World::new();
     let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
-    let target = w.herdr.binding("w1:pB");
+    let target = w.target("w1:pB");
     let outcome = w
         .service()
         .send(&answer, &target, "これをレビューして")
@@ -234,7 +240,7 @@ fn changed_source_blocks_send() {
     w.set_answer("msg_2", "a newer answer");
     let err = w
         .service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .send(&answer, &w.target("w1:pB"), "go")
         .unwrap_err();
     assert!(matches!(err, HandoffError::SourceChanged(_)), "{err:?}");
     assert_eq!(w.herdr.sent(), 0);
@@ -253,7 +259,7 @@ fn source_starting_a_turn_during_the_read_blocks_send() {
     }));
     let err = w
         .service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .send(&answer, &w.target("w1:pB"), "go")
         .unwrap_err();
     assert!(
         matches!(
@@ -278,7 +284,7 @@ fn source_turn_finishing_during_the_read_blocks_send() {
     }));
     let err = w
         .service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .send(&answer, &w.target("w1:pB"), "go")
         .unwrap_err();
     assert!(matches!(err, HandoffError::SourceChanged(_)), "{err:?}");
     assert_eq!(w.herdr.sent(), 0);
@@ -293,7 +299,7 @@ fn replaced_source_blocks_send() {
     });
     let err = w
         .service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .send(&answer, &w.target("w1:pB"), "go")
         .unwrap_err();
     assert!(matches!(err, HandoffError::SourceChanged(_)), "{err:?}");
     assert_eq!(w.herdr.sent(), 0);
@@ -303,16 +309,17 @@ fn replaced_source_blocks_send() {
 fn replaced_target_blocks_send() {
     let w = World::new();
     let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
-    let target = w.herdr.binding("w1:pB");
+    let target = w.target("w1:pB");
     // A new process in the same pane.
     w.herdr
         .set("w1:pB", |a| a["terminal_id"] = json!("term-new"));
     let err = w.service().send(&answer, &target, "go").unwrap_err();
     assert!(matches!(err, HandoffError::TargetChanged(_)), "{err:?}");
-    // A different session in the same terminal.
+    // Codex restarted in the same terminal (a target Codex is bound to its
+    // process, not to a thread).
     w.herdr.set("w1:pB", |a| {
         a["terminal_id"] = json!("term-w1:pB");
-        a["agent_session"]["value"] = json!("01a118e9-1aa8-7491-bc3d-f5bfadbddeb7");
+        a["test_pid"] = json!(8);
     });
     let err = w.service().send(&answer, &target, "go").unwrap_err();
     assert!(matches!(err, HandoffError::TargetChanged(_)), "{err:?}");
@@ -331,7 +338,7 @@ fn working_or_blocked_rejected() {
     for status in ["working", "blocked", "unknown"] {
         let w = World::new();
         let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
-        let target = w.herdr.binding("w1:pB");
+        let target = w.target("w1:pB");
         w.herdr.set("w1:pB", |a| a["agent_status"] = json!(status));
         let err = w.service().send(&answer, &target, "go").unwrap_err();
         assert!(
@@ -363,7 +370,7 @@ fn source_must_be_ready_to_prepare() {
 fn starting_managed_target_rejected() {
     let w = World::new();
     let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
-    let target = w.herdr.binding("w1:pB");
+    let target = w.target("w1:pB");
     w.herdr.set("w1:pB", |a| a["launch_pending"] = json!(true));
     let err = w.service().send(&answer, &target, "go").unwrap_err();
     assert!(matches!(err, HandoffError::AgentNotReady(_)), "{err:?}");
@@ -390,7 +397,7 @@ fn oversize_rejected() {
     let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
     let err = w
         .service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .send(&answer, &w.target("w1:pB"), "go")
         .unwrap_err();
     assert!(matches!(err, HandoffError::PayloadTooLarge(_)), "{err:?}");
     assert_eq!(w.herdr.sent(), 0);
@@ -401,10 +408,7 @@ fn timeout_never_retries() {
     let w = World::new();
     *w.herdr.prompt_result.borrow_mut() = Err(HandoffError::DeliveryUnknown("timed out".into()));
     let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
-    let outcome = w
-        .service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
-        .unwrap();
+    let outcome = w.service().send(&answer, &w.target("w1:pB"), "go").unwrap();
     assert_eq!(outcome, SendOutcome::DeliveryUnknown);
     assert_eq!(w.herdr.sent(), 1);
 }
@@ -416,7 +420,7 @@ fn rejection_before_writing_is_an_error_not_unknown() {
     let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
     let err = w
         .service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .send(&answer, &w.target("w1:pB"), "go")
         .unwrap_err();
     assert!(matches!(err, HandoffError::AgentNotReady(_)), "{err:?}");
     assert_eq!(w.herdr.sent(), 1);
@@ -429,7 +433,7 @@ fn unreadable_source_blocks_send() {
     *w.adapters.0.answer.borrow_mut() = Err(HandoffError::CompletionUncertain("x".into()));
     let err = w
         .service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .send(&answer, &w.target("w1:pB"), "go")
         .unwrap_err();
     assert!(
         matches!(err, HandoffError::CompletionUncertain(_)),
@@ -511,7 +515,7 @@ fn source_transcript_switch_blocks_send() {
     *w.adapters.0.path.borrow_mut() = PathBuf::from("/fake_segment.jsonl");
     let err = w
         .service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .send(&answer, &w.target("w1:pB"), "go")
         .unwrap_err();
     assert!(matches!(err, HandoffError::SourceChanged(_)), "{err:?}");
     assert_eq!(w.herdr.sent(), 0);
@@ -531,9 +535,7 @@ fn prompt_label_adds_the_agent_to_a_pane_name() {
 fn sent_prompt_names_the_source_in_english_without_pane_ids() {
     let w = World::new();
     let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
-    w.service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
-        .unwrap();
+    w.service().send(&answer, &w.target("w1:pB"), "go").unwrap();
     let prompts = w.herdr.prompts.borrow();
     assert!(
         prompts[0].1.contains("(from: Claude Code /srv/app)"),
@@ -582,10 +584,7 @@ fn chosen_older_answer_is_sent_after_a_newer_one_appears() {
         .older
         .borrow_mut()
         .insert(0, ("msg_1".into(), "previous".into()));
-    let outcome = w
-        .service()
-        .send(&older, &w.herdr.binding("w1:pB"), "go")
-        .unwrap();
+    let outcome = w.service().send(&older, &w.target("w1:pB"), "go").unwrap();
     assert_eq!(outcome, SendOutcome::Accepted);
     assert!(w.herdr.prompts.borrow()[0].1.contains("an older answer"));
 }
@@ -602,7 +601,7 @@ fn chosen_answer_no_longer_in_the_conversation_blocks_send() {
     w.adapters.0.older.borrow_mut().clear(); // rewound away
     let err = w
         .service()
-        .send(&older, &w.herdr.binding("w1:pB"), "go")
+        .send(&older, &w.target("w1:pB"), "go")
         .unwrap_err();
     assert!(matches!(err, HandoffError::SourceChanged(_)), "{err:?}");
     assert_eq!(w.herdr.sent(), 0);
@@ -635,8 +634,11 @@ fn codex_on_the_shared_daemon_is_reached_through_its_title() {
     let daemon = OneThreadDaemon;
     let service = w.service().with_codex_daemon(&daemon);
     let answer = service.prepare(w.herdr.binding("w1:pA")).unwrap();
-    let target = service.agent("w1:pB").unwrap().binding;
-    assert_eq!(target.session.value, DST_SESSION);
+    assert_eq!(
+        service.agent("w1:pB").unwrap().binding.session.value,
+        DST_SESSION
+    );
+    let target = service.target("w1:pB").unwrap().binding;
     assert_eq!(
         service.send(&answer, &target, "go").unwrap(),
         SendOutcome::Accepted
@@ -675,13 +677,28 @@ fn sent_prompt_uses_the_configured_language() {
     let mut w = World::new();
     w.config.prompt_language = PromptLanguage::Ja;
     let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
-    w.service()
-        .send(&answer, &w.herdr.binding("w1:pB"), "go")
-        .unwrap();
+    w.service().send(&answer, &w.target("w1:pB"), "go").unwrap();
     let prompts = w.herdr.prompts.borrow();
     assert!(
         prompts[0].1.contains("（送信元：Claude Code /srv/app）"),
         "{}",
         prompts[0].1
     );
+}
+
+#[test]
+fn a_codex_target_is_sent_to_without_knowing_its_thread() {
+    // No Herdr session and no daemon: as a source this pane could not be
+    // read, but as a target the prompt only has to reach the pane.
+    let w = World::new();
+    w.herdr.set("w1:pB", |a| {
+        a.as_object_mut().unwrap().remove("agent_session");
+    });
+    assert!(w.service().agent("w1:pB").is_err());
+    let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
+    assert_eq!(
+        w.service().send(&answer, &w.target("w1:pB"), "go").unwrap(),
+        SendOutcome::Accepted
+    );
+    assert_eq!(w.herdr.sent(), 1);
 }

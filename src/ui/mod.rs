@@ -1001,7 +1001,7 @@ impl LiveService<'_> {
         let reason = if AgentKind::from_herdr(&agent).is_none() {
             Some("unsupported agent".to_string())
         } else {
-            match self.handoff().agent(&p.pane_id) {
+            match self.handoff().target(&p.pane_id) {
                 Ok(a) => {
                     row.status = a.agent_status.clone();
                     if a.is_ready() {

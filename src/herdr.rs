@@ -43,8 +43,16 @@ pub struct AgentSnapshot {
 impl AgentSnapshot {
     /// The snapshot for an `AgentInfo` object.
     pub fn from_info(info: &Value, server_key: &str) -> Result<Self, HandoffError> {
-        Ok(Self {
-            binding: binding_from_agent(info, server_key)?,
+        Ok(Self::with_binding(
+            info,
+            binding_from_agent(info, server_key)?,
+        ))
+    }
+
+    /// The snapshot for an `AgentInfo` object, bound as `binding`.
+    pub fn with_binding(info: &Value, binding: PaneBinding) -> Self {
+        Self {
+            binding,
             agent_status: info["agent_status"]
                 .as_str()
                 .unwrap_or("unknown")
@@ -52,7 +60,7 @@ impl AgentSnapshot {
             interactive_ready: info["interactive_ready"].as_bool().unwrap_or(false),
             launch_pending: info["launch_pending"].as_bool().unwrap_or(false),
             state_change_seq: info["state_change_seq"].as_u64().unwrap_or(0),
-        })
+        }
     }
 
     /// Idle or done, and not a managed agent still starting.

@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 
 use agent_relay::codex_daemon::{
-    CodexDaemon, DaemonError, DaemonThread, match_thread, resolve_agent,
+    CodexDaemon, DaemonError, DaemonThread, match_thread, resolve_agent, resolve_target,
 };
 use agent_relay::error::HandoffError;
 use agent_relay::herdr::{HerdrApi, Layout, PaneProcess, PaneSummary};
@@ -109,6 +109,8 @@ struct Herdr {
     argv: RefCell<Vec<String>>,
     /// `pane.process_info` fails.
     no_process_info: RefCell<bool>,
+    /// The pid of the pane's foreground process.
+    pid: RefCell<u32>,
 }
 
 impl HerdrApi for Herdr {
@@ -132,7 +134,7 @@ impl HerdrApi for Herdr {
             return Err(HandoffError::Herdr("process info unavailable".into()));
         }
         Ok(vec![PaneProcess {
-            pid: 42,
+            pid: *self.pid.borrow(),
             argv: self.argv.borrow().clone(),
         }])
     }
@@ -157,6 +159,7 @@ fn codex_pane(session: Option<&str>) -> Herdr {
         info: RefCell::new(info),
         argv: RefCell::new(argv(&["codex"])),
         no_process_info: RefCell::new(false),
+        pid: RefCell::new(42),
     }
 }
 
@@ -328,6 +331,7 @@ fn claude_panes_never_ask_the_daemon() {
         })),
         argv: RefCell::new(argv(&["claude"])),
         no_process_info: RefCell::new(false),
+        pid: RefCell::new(7),
     };
     let d = daemon_down(DaemonError::Failed("must not be called".into()));
     let agent = resolve_agent(&herdr, Some(&d), "w1:p1").unwrap();
@@ -390,4 +394,82 @@ fn codex_installed_through_npm_is_recognized() {
         "--no-daemon",
     ]);
     assert!(resolve_agent(&herdr, Some(&d), "w1:p5").is_err());
+}
+
+// As the target, a Codex pane only has to be the same Codex when the prompt
+// is sent: the prompt goes to the pane, and no transcript is read. Which
+// daemon thread it shows does not matter.
+
+#[test]
+fn a_codex_target_sharing_its_thread_name_can_be_picked() {
+    let herdr = codex_pane(None);
+    let d = daemon(vec![
+        thread(T1, Some("Fix the parser"), CWD),
+        thread(T2, Some("Fix the parser"), CWD),
+    ]);
+    assert!(resolve_agent(&herdr, Some(&d), "w1:p5").is_err());
+    let target = resolve_target(&herdr, Some(&d), "w1:p5").unwrap();
+    assert_eq!(target.binding.pane_id, "w1:p5");
+    assert_eq!(target.binding.terminal_id, "term_5");
+    assert!(target.is_ready());
+}
+
+#[test]
+fn a_codex_target_needs_no_session_or_thread_name() {
+    // Before its first prompt, or with the daemon down or a custom title.
+    let herdr = codex_pane(None);
+    *herdr.info.borrow_mut().get_mut("terminal_title").unwrap() = json!("codex");
+    *herdr
+        .info
+        .borrow_mut()
+        .get_mut("terminal_title_stripped")
+        .unwrap() = json!("codex");
+    let d = daemon_down(DaemonError::NotRunning);
+    assert!(resolve_target(&herdr, Some(&d), "w1:p5").is_ok());
+    assert!(resolve_target(&herdr, None, "w1:p5").is_ok());
+}
+
+#[test]
+fn a_restarted_codex_is_another_target() {
+    let herdr = codex_pane(None);
+    let d = daemon(Vec::new());
+    let before = resolve_target(&herdr, Some(&d), "w1:p5").unwrap();
+    assert!(
+        before
+            .binding
+            .same_occupant(&resolve_target(&herdr, Some(&d), "w1:p5").unwrap().binding)
+    );
+    *herdr.pid.borrow_mut() = 43;
+    let after = resolve_target(&herdr, Some(&d), "w1:p5").unwrap();
+    assert!(!before.binding.same_occupant(&after.binding));
+}
+
+#[test]
+fn a_codex_target_whose_process_cannot_be_seen_is_refused() {
+    let d = daemon(Vec::new());
+    let herdr = codex_pane(None);
+    *herdr.no_process_info.borrow_mut() = true;
+    assert!(resolve_target(&herdr, Some(&d), "w1:p5").is_err());
+    let herdr = codex_pane(None);
+    *herdr.argv.borrow_mut() = argv(&["zsh"]);
+    assert!(resolve_target(&herdr, Some(&d), "w1:p5").is_err());
+}
+
+#[test]
+fn a_claude_target_is_bound_to_its_session_as_before() {
+    let herdr = Herdr {
+        info: RefCell::new(json!({
+            "agent": "claude", "agent_status": "idle", "pane_id": "w1:p1", "tab_id": "w1:t1",
+            "terminal_id": "term_1",
+        })),
+        argv: RefCell::new(argv(&["claude"])),
+        no_process_info: RefCell::new(false),
+        pid: RefCell::new(7),
+    };
+    let d = daemon(Vec::new());
+    let err = resolve_target(&herdr, Some(&d), "w1:p1").unwrap_err();
+    assert!(
+        matches!(err, HandoffError::SessionUnavailable(_)),
+        "{err:?}"
+    );
 }

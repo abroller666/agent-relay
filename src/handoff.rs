@@ -6,7 +6,7 @@
 //! whose result is unknown is reported as such and never retried.
 
 use crate::adapters::AdapterRegistry;
-use crate::codex_daemon::{CodexDaemon, resolve_agent};
+use crate::codex_daemon::{CodexDaemon, resolve_agent, resolve_target};
 use crate::config::Config;
 use crate::error::HandoffError;
 use crate::herdr::{AgentSnapshot, HerdrApi};
@@ -56,6 +56,11 @@ impl<'a> HandoffService<'a> {
     /// The agent in `pane_id` with its session binding.
     pub fn agent(&self, pane_id: &str) -> Result<AgentSnapshot, HandoffError> {
         resolve_agent(self.herdr, self.daemon, pane_id)
+    }
+
+    /// The agent in `pane_id` as a target (see `resolve_target`).
+    pub fn target(&self, pane_id: &str) -> Result<AgentSnapshot, HandoffError> {
+        resolve_target(self.herdr, self.daemon, pane_id)
     }
 
     /// The last finished answer of `source`, which must still be the same
@@ -156,7 +161,7 @@ impl<'a> HandoffService<'a> {
                 "the source changed state while its answer was checked".into(),
             ));
         }
-        let now = match self.agent(&target.pane_id) {
+        let now = match self.target(&target.pane_id) {
             Ok(now) => now,
             Err(HandoffError::UnsupportedAgent(_) | HandoffError::SessionUnavailable(_)) => {
                 return Err(HandoffError::TargetChanged(

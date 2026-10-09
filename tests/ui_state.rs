@@ -565,6 +565,15 @@ mod live_targets {
         fn layout(&self, _: &str) -> Result<Layout, HandoffError> {
             Err(HandoffError::Herdr("no layout".into()))
         }
+        fn foreground_processes(
+            &self,
+            _: &str,
+        ) -> Result<Vec<agent_relay::herdr::PaneProcess>, HandoffError> {
+            Ok(vec![agent_relay::herdr::PaneProcess {
+                pid: 9,
+                argv: vec!["codex".into()],
+            }])
+        }
         fn workspace_labels(&self) -> Result<Vec<(String, String)>, HandoffError> {
             Ok(vec![
                 ("w1".into(), "develop".into()),

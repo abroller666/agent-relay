@@ -22,7 +22,8 @@ use serde_json::{Value, json};
 
 use crate::error::HandoffError;
 use crate::herdr::{AgentSnapshot, HerdrApi, PaneProcess};
-use crate::session::rollout_segment;
+use crate::model::{AgentKind, SessionRef};
+use crate::session::{occupant_binding, rollout_segment};
 
 /// A thread loaded in the daemon.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,6 +49,40 @@ pub trait CodexDaemon {
     fn files_open_by(&self, _pid: u32) -> Option<Vec<PathBuf>> {
         None
     }
+}
+
+/// The agent in `pane_id` as the target of a handoff. Nothing is read from
+/// a target, and the prompt goes to the pane, so a Codex target needs no
+/// thread: it is bound to the Codex process running in the pane, and a
+/// restarted Codex is another target. (Switching threads inside one Codex
+/// with `/new` or `/resume` is not seen.) Other agents are bound as by
+/// `resolve_agent`.
+pub fn resolve_target(
+    herdr: &dyn HerdrApi,
+    daemon: Option<&dyn CodexDaemon>,
+    pane_id: &str,
+) -> Result<AgentSnapshot, HandoffError> {
+    let info = herdr.agent_info(pane_id)?;
+    if info["agent"] != "codex" {
+        return resolve_agent(herdr, daemon, pane_id);
+    }
+    let unseen =
+        || HandoffError::SessionUnavailable("cannot see the Codex process in this pane".into());
+    let processes = herdr.foreground_processes(pane_id).map_err(|_| unseen())?;
+    let pids: Vec<String> = processes
+        .iter()
+        .filter(|p| is_codex(p))
+        .map(|p| p.pid.to_string())
+        .collect();
+    if pids.is_empty() {
+        return Err(unseen());
+    }
+    let session = SessionRef {
+        kind: "process".into(),
+        value: pids.join(","),
+    };
+    let binding = occupant_binding(&info, &herdr.server_key(), AgentKind::Codex, session)?;
+    Ok(AgentSnapshot::with_binding(&info, binding))
 }
 
 /// The agent in `pane_id`, with its session bound as described above.
