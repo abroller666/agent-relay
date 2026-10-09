@@ -116,6 +116,10 @@ pub trait HerdrApi {
     fn prompt(&self, pane_id: &str, text: &str) -> Result<(), HandoffError>;
     fn list_panes(&self) -> Result<Vec<PaneSummary>, HandoffError>;
     fn layout(&self, pane_id: &str) -> Result<Layout, HandoffError>;
+    /// The argument vectors of the pane's foreground processes.
+    fn foreground_argv(&self, _pane_id: &str) -> Result<Vec<Vec<String>>, HandoffError> {
+        Ok(Vec::new())
+    }
     /// (workspace id, label) of every workspace, in Herdr's order.
     fn workspace_labels(&self) -> Result<Vec<(String, String)>, HandoffError> {
         Ok(Vec::new())
@@ -287,6 +291,25 @@ impl HerdrApi for HerdrClient {
             .map_err(CallError::into_herdr)?;
         serde_json::from_value(result["panes"].take())
             .map_err(|e| HandoffError::Herdr(format!("pane.list: {e}")))
+    }
+
+    fn foreground_argv(&self, pane_id: &str) -> Result<Vec<Vec<String>>, HandoffError> {
+        let result = self
+            .call("pane.process_info", json!({"pane_id": pane_id}))
+            .map_err(CallError::into_herdr)?;
+        Ok(result["process_info"]["foreground_processes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| {
+                p["argv"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|a| a.as_str().map(str::to_string))
+                    .collect()
+            })
+            .collect())
     }
 
     fn workspace_labels(&self) -> Result<Vec<(String, String)>, HandoffError> {

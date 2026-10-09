@@ -5,7 +5,9 @@
 
 use std::cell::RefCell;
 
-use agent_relay::codex_daemon::{CodexDaemon, DaemonThread, match_thread, resolve_agent};
+use agent_relay::codex_daemon::{
+    CodexDaemon, DaemonError, DaemonThread, match_thread, resolve_agent,
+};
 use agent_relay::error::HandoffError;
 use agent_relay::herdr::{HerdrApi, Layout, PaneSummary};
 use serde_json::{Value, json};
@@ -73,17 +75,18 @@ fn titles_that_do_not_name_a_thread_are_refused() {
 }
 
 struct Daemon {
-    threads: RefCell<Result<Vec<DaemonThread>, HandoffError>>,
+    threads: RefCell<Result<Vec<DaemonThread>, DaemonError>>,
 }
 
 impl CodexDaemon for Daemon {
-    fn loaded_threads(&self) -> Result<Vec<DaemonThread>, HandoffError> {
+    fn loaded_threads(&self) -> Result<Vec<DaemonThread>, DaemonError> {
         self.threads.borrow().clone()
     }
 }
 
 struct Herdr {
     info: RefCell<Value>,
+    argv: RefCell<Vec<String>>,
 }
 
 impl HerdrApi for Herdr {
@@ -102,6 +105,13 @@ impl HerdrApi for Herdr {
     fn layout(&self, _: &str) -> Result<Layout, HandoffError> {
         Err(HandoffError::Herdr("no layout".into()))
     }
+    fn foreground_argv(&self, _: &str) -> Result<Vec<Vec<String>>, HandoffError> {
+        Ok(vec![self.argv.borrow().clone()])
+    }
+}
+
+fn argv(args: &[&str]) -> Vec<String> {
+    args.iter().map(|a| a.to_string()).collect()
 }
 
 fn codex_pane(session: Option<&str>) -> Herdr {
@@ -117,6 +127,7 @@ fn codex_pane(session: Option<&str>) -> Herdr {
     }
     Herdr {
         info: RefCell::new(info),
+        argv: RefCell::new(argv(&["codex"])),
     }
 }
 
@@ -161,30 +172,47 @@ fn a_herdr_session_on_the_daemon_must_agree_with_the_title() {
 }
 
 #[test]
-fn a_herdr_session_not_on_the_daemon_is_trusted() {
-    // `codex --no-daemon`: the hook ran in the pane itself.
+fn a_herdr_session_absent_from_the_daemon_is_not_proof_of_no_daemon() {
+    // Herdr's report names a thread the daemon has since unloaded: it may
+    // still be a wrong report. The pane's title decides.
     let herdr = codex_pane(Some(T3));
     let d = daemon(vec![thread(T1, Some("Fix the parser"), CWD)]);
     let agent = resolve_agent(&herdr, Some(&d), "w1:p5").unwrap();
-    assert_eq!(agent.binding.session.value, T3);
+    assert_eq!(agent.binding.session.value, T1);
+    herdr.info.borrow_mut()["terminal_title_stripped"] = json!("app");
+    let err = resolve_agent(&herdr, Some(&d), "w1:p5").unwrap_err();
+    assert!(
+        matches!(err, HandoffError::SessionUnavailable(_)),
+        "{err:?}"
+    );
 }
 
 #[test]
-fn without_a_reachable_daemon_herdr_decides() {
+fn codex_started_with_no_daemon_keeps_its_herdr_session() {
+    // Its hook ran in the pane itself; a daemon thread of the same name
+    // and directory is someone else's.
     let herdr = codex_pane(Some(T3));
-    let down = Daemon {
-        threads: RefCell::new(Err(HandoffError::Herdr("no daemon".into()))),
-    };
-    assert_eq!(
-        resolve_agent(&herdr, Some(&down), "w1:p5")
-            .unwrap()
-            .binding
-            .session
-            .value,
-        T3
+    *herdr.argv.borrow_mut() = argv(&["codex", "--no-daemon", "resume", T3]);
+    let d = daemon(vec![thread(T1, Some("Fix the parser"), CWD)]);
+    let agent = resolve_agent(&herdr, Some(&d), "w1:p5").unwrap();
+    assert_eq!(agent.binding.session.value, T3);
+    let unregistered = codex_pane(None);
+    *unregistered.argv.borrow_mut() = argv(&["codex", "--no-daemon"]);
+    let err = resolve_agent(&unregistered, Some(&d), "w1:p5").unwrap_err();
+    assert!(
+        matches!(err, HandoffError::SessionUnavailable(_)),
+        "{err:?}"
     );
+}
+
+#[test]
+fn with_no_daemon_running_herdr_decides() {
+    let not_running = Daemon {
+        threads: RefCell::new(Err(DaemonError::NotRunning)),
+    };
+    let herdr = codex_pane(Some(T3));
     assert_eq!(
-        resolve_agent(&herdr, None, "w1:p5")
+        resolve_agent(&herdr, Some(&not_running), "w1:p5")
             .unwrap()
             .binding
             .session
@@ -192,7 +220,22 @@ fn without_a_reachable_daemon_herdr_decides() {
         T3
     );
     let unregistered = codex_pane(None);
-    let err = resolve_agent(&unregistered, Some(&down), "w1:p5").unwrap_err();
+    let err = resolve_agent(&unregistered, Some(&not_running), "w1:p5").unwrap_err();
+    assert!(
+        matches!(err, HandoffError::SessionUnavailable(_)),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn a_daemon_that_cannot_be_asked_stops_the_handoff() {
+    // A timeout or protocol change is not "no daemon": Herdr's report may
+    // be the wrong one, so nothing is trusted.
+    let failing = Daemon {
+        threads: RefCell::new(Err(DaemonError::Failed("timed out".into()))),
+    };
+    let herdr = codex_pane(Some(T3));
+    let err = resolve_agent(&herdr, Some(&failing), "w1:p5").unwrap_err();
     assert!(
         matches!(err, HandoffError::SessionUnavailable(_)),
         "{err:?}"
@@ -208,9 +251,10 @@ fn claude_panes_never_ask_the_daemon() {
             "agent_session": {"source": "herdr:claude", "agent": "claude", "kind": "id",
                               "value": "c07c63dd-285d-4412-bb32-5654dd417828"},
         })),
+        argv: RefCell::new(argv(&["claude"])),
     };
     let d = Daemon {
-        threads: RefCell::new(Err(HandoffError::Herdr("must not be called".into()))),
+        threads: RefCell::new(Err(DaemonError::Failed("must not be called".into()))),
     };
     let agent = resolve_agent(&herdr, Some(&d), "w1:p1").unwrap();
     assert_eq!(

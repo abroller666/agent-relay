@@ -510,7 +510,10 @@ fn chosen_answer_no_longer_in_the_conversation_blocks_send() {
 struct OneThreadDaemon;
 
 impl agent_relay::codex_daemon::CodexDaemon for OneThreadDaemon {
-    fn loaded_threads(&self) -> Result<Vec<agent_relay::codex_daemon::DaemonThread>, HandoffError> {
+    fn loaded_threads(
+        &self,
+    ) -> Result<Vec<agent_relay::codex_daemon::DaemonThread>, agent_relay::codex_daemon::DaemonError>
+    {
         Ok(vec![agent_relay::codex_daemon::DaemonThread {
             id: DST_SESSION.into(),
             name: Some("Review".into()),

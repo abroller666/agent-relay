@@ -31,10 +31,18 @@ pub struct DaemonThread {
     pub cwd: Option<String>,
 }
 
+/// Why the daemon's threads are not known.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DaemonError {
+    /// Nothing listens on its socket: every Codex runs in its own process.
+    NotRunning,
+    /// It runs but could not be asked (timeout, protocol change).
+    Failed(String),
+}
+
 pub trait CodexDaemon {
-    /// The threads the daemon has loaded. An error means the daemon could
-    /// not be asked (none running, protocol changed).
-    fn loaded_threads(&self) -> Result<Vec<DaemonThread>, HandoffError>;
+    /// The threads the daemon has loaded.
+    fn loaded_threads(&self) -> Result<Vec<DaemonThread>, DaemonError>;
 }
 
 /// The agent in `pane_id`, with its session bound as described above.
@@ -49,18 +57,20 @@ pub fn resolve_agent(
     let Some(daemon) = daemon.filter(|_| info["agent"] == "codex") else {
         return reported;
     };
-    let Ok(threads) = daemon.loaded_threads() else {
-        return reported; // no daemon to ask: Herdr's report stands
-    };
-    let reported_id = reported
-        .as_ref()
-        .ok()
-        .map(|a| a.binding.session.value.clone());
-    if let Some(id) = &reported_id
-        && !threads.iter().any(|t| t.id == *id)
-    {
-        return reported; // reported from the pane itself (`--no-daemon`)
+    // Herdr's report is trusted only where Herdr's hook ran in the pane
+    // itself: Codex started with --no-daemon, or no daemon at all.
+    if started_without_daemon(herdr, pane_id) {
+        return reported;
     }
+    let threads = match daemon.loaded_threads() {
+        Ok(threads) => threads,
+        Err(DaemonError::NotRunning) => return reported,
+        Err(DaemonError::Failed(e)) => {
+            return Err(HandoffError::SessionUnavailable(format!(
+                "cannot ask the Codex daemon which thread this pane shows ({e})"
+            )));
+        }
+    };
     let str_field = |key: &str| info[key].as_str().filter(|s| !s.trim().is_empty());
     let title = str_field("terminal_title_stripped")
         .or(str_field("terminal_title"))
@@ -113,6 +123,19 @@ pub fn match_thread(
     }
 }
 
+/// Whether the pane's Codex was started with `--no-daemon`.
+fn started_without_daemon(herdr: &dyn HerdrApi, pane_id: &str) -> bool {
+    herdr.foreground_argv(pane_id).is_ok_and(|procs| {
+        procs.iter().any(|argv| {
+            let is_codex = argv
+                .first()
+                .and_then(|a| Path::new(a).file_name())
+                .is_some_and(|n| n.to_string_lossy().starts_with("codex"));
+            is_codex && argv.iter().skip(1).any(|a| a == "--no-daemon")
+        })
+    })
+}
+
 fn same_dir(a: &str, b: &str) -> bool {
     a == b
         || matches!(
@@ -140,8 +163,20 @@ impl DaemonClient {
 }
 
 impl CodexDaemon for DaemonClient {
-    fn loaded_threads(&self) -> Result<Vec<DaemonThread>, HandoffError> {
-        let mut ws = WsJsonRpc::connect(&self.socket)?;
+    fn loaded_threads(&self) -> Result<Vec<DaemonThread>, DaemonError> {
+        let stream = match UnixStream::connect(&self.socket) {
+            Ok(stream) => stream,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
+                ) =>
+            {
+                return Err(DaemonError::NotRunning);
+            }
+            Err(e) => return Err(daemon_error(e)),
+        };
+        let mut ws = WsJsonRpc::handshake(stream)?;
         ws.call(
             "initialize",
             json!({"clientInfo": {"name": "agent-relay", "version": env!("CARGO_PKG_VERSION")}}),
@@ -181,8 +216,8 @@ impl CodexDaemon for DaemonClient {
 const TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_MESSAGE: usize = 16 * 1024 * 1024;
 
-fn daemon_error(what: impl std::fmt::Display) -> HandoffError {
-    HandoffError::Herdr(format!("Codex daemon: {what}"))
+fn daemon_error(what: impl std::fmt::Display) -> DaemonError {
+    DaemonError::Failed(what.to_string())
 }
 
 /// JSON-RPC over a WebSocket on a Unix socket, as the Codex app-server
@@ -194,8 +229,7 @@ struct WsJsonRpc {
 }
 
 impl WsJsonRpc {
-    fn connect(socket: &Path) -> Result<Self, HandoffError> {
-        let stream = UnixStream::connect(socket).map_err(daemon_error)?;
+    fn handshake(stream: UnixStream) -> Result<Self, DaemonError> {
         stream.set_read_timeout(Some(TIMEOUT)).ok();
         stream.set_write_timeout(Some(TIMEOUT)).ok();
         let mut ws = Self {
@@ -231,7 +265,7 @@ impl WsJsonRpc {
         Ok(ws)
     }
 
-    fn fill(&mut self) -> Result<(), HandoffError> {
+    fn fill(&mut self) -> Result<(), DaemonError> {
         let mut chunk = [0u8; 64 * 1024];
         let n = self.stream.read(&mut chunk).map_err(daemon_error)?;
         if n == 0 {
@@ -241,14 +275,14 @@ impl WsJsonRpc {
         Ok(())
     }
 
-    fn take(&mut self, n: usize) -> Result<Vec<u8>, HandoffError> {
+    fn take(&mut self, n: usize) -> Result<Vec<u8>, DaemonError> {
         while self.buf.len() < n {
             self.fill()?;
         }
         Ok(self.buf.drain(..n).collect())
     }
 
-    fn send_frame(&mut self, opcode: u8, payload: &[u8]) -> Result<(), HandoffError> {
+    fn send_frame(&mut self, opcode: u8, payload: &[u8]) -> Result<(), DaemonError> {
         let mut frame = vec![0x80 | opcode];
         match payload.len() {
             n if n < 126 => frame.push(0x80 | n as u8),
@@ -268,7 +302,7 @@ impl WsJsonRpc {
     }
 
     /// The next text message.
-    fn recv(&mut self) -> Result<Value, HandoffError> {
+    fn recv(&mut self) -> Result<Value, DaemonError> {
         let mut message = Vec::new();
         loop {
             let head = self.take(2)?;
@@ -304,12 +338,12 @@ impl WsJsonRpc {
         }
     }
 
-    fn notify(&mut self, method: &str) -> Result<(), HandoffError> {
+    fn notify(&mut self, method: &str) -> Result<(), DaemonError> {
         let msg = json!({"jsonrpc": "2.0", "method": method}).to_string();
         self.send_frame(0x1, msg.as_bytes())
     }
 
-    fn call(&mut self, method: &str, params: Value) -> Result<Value, HandoffError> {
+    fn call(&mut self, method: &str, params: Value) -> Result<Value, DaemonError> {
         self.next_id += 1;
         let id = self.next_id;
         let msg = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
@@ -465,10 +499,9 @@ mod tests {
     #[test]
     fn no_daemon_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(
-            DaemonClient::at(dir.path().join("none.sock"))
-                .loaded_threads()
-                .is_err()
+        assert_eq!(
+            DaemonClient::at(dir.path().join("none.sock")).loaded_threads(),
+            Err(DaemonError::NotRunning)
         );
     }
 }
