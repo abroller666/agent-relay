@@ -73,13 +73,23 @@ description = "hand the last answer to another pane"
 
 ## Configuration
 
-Put a `config.json` in the plugin's config directory (`HERDR_PLUGIN_CONFIG_DIR`) to change the language of the line introducing the quote, or for non-standard Claude Code / Codex directories. Every key is optional:
+Put a `config.json` in the plugin's config directory (`HERDR_PLUGIN_CONFIG_DIR`). Every key is optional, and an unknown key is an error:
 
 ```json
-{"prompt_language": "en", "claude_roots": ["~/.claude/projects"], "codex_roots": ["~/.codex/sessions"], "max_payload_bytes": 262144}
+{
+  "prompt_language": "en",
+  "claude_roots": ["~/.claude/projects"],
+  "codex_roots": ["~/.codex/sessions"],
+  "max_payload_bytes": 262144,
+  "max_file_bytes": 268435456,
+  "max_line_bytes": 8388608,
+  "max_candidates": 10000
+}
 ```
 
-`prompt_language` is `"en"` (the default) or `"ja"`. It only changes the prompt sent to B; the popup stays in English.
+- `prompt_language`: the language of the line introducing the quote, `"en"` (the default) or `"ja"`. It only changes the prompt sent to B; the popup stays in English.
+- `claude_roots`, `codex_roots`: where agent-relay looks for the transcripts. Claude Code and Codex decide where they write them; agent-relay only reads them and does not change that. The defaults are the standard locations. Set these only if you moved them (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`); the popup does not read those variables, since its environment may differ from the agents'.
+- `max_payload_bytes`: the largest prompt to send. `max_file_bytes`, `max_line_bytes`, `max_candidates`: read limits for transcripts.
 
 ## Data
 
