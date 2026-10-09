@@ -71,7 +71,15 @@ Details: [docs/compatibility.md](docs/compatibility.md).
 ## Install
 
 ```sh
-git clone <this repository> agent-relay
+herdr plugin install abroller666/agent-relay
+```
+
+Herdr shows the source and the build command (`sh scripts/build.sh`, which runs `cargo build --release`) and asks before running it, so `cargo` (Rust 1.85 or later) must be installed. To pin a release, add `--ref v0.1.0`. There is no `plugin update` yet; install again to update.
+
+From a local checkout instead:
+
+```sh
+git clone https://github.com/abroller666/agent-relay.git
 cd agent-relay
 sh scripts/build.sh
 herdr plugin link .
