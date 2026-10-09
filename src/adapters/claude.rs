@@ -6,7 +6,8 @@
 //! block, sharing `message.id`. A turn has ended normally when its chain
 //! reads, from the newest record back: `system` `turn_duration`, then
 //! (past attachments and other system records) the assistant message with
-//! `stop_reason: "end_turn"`.
+//! `stop_reason: "end_turn"`. A compaction starts a new chain, linked back
+//! to the old one through the boundary's `logicalParentUuid`.
 
 use std::collections::HashMap;
 
@@ -97,12 +98,37 @@ fn kind_of(r: &Value) -> Kind {
         },
         Some("system") if r["subtype"] == "turn_duration" => Kind::TurnDuration,
         Some("system" | "attachment") => Kind::Aside,
+        Some("user") if written_by_compaction(r) => Kind::Aside,
         Some("user") => Kind::User {
             interrupted: user_text(r)
                 .is_some_and(|t| t.starts_with("[Request interrupted by user")),
         },
         _ => Kind::Other,
     }
+}
+
+/// Whether a user record is one that `/compact` writes after the boundary:
+/// the summary, the command's caveat (`isMeta`), the command and its
+/// output. None of them starts a turn.
+fn written_by_compaction(r: &Value) -> bool {
+    r["isCompactSummary"].as_bool() == Some(true)
+        || r["isMeta"].as_bool() == Some(true)
+        || user_text(r).is_some_and(|t| {
+            t.starts_with("<command-name>/compact</command-name>")
+                || t.starts_with("<local-command-stdout>")
+        })
+}
+
+/// The parent of a record. A compaction boundary starts a new chain
+/// (`parentUuid: null`) and names the record it follows in
+/// `logicalParentUuid`; following that keeps the answers from before it.
+fn parent_of(r: &Value) -> Option<String> {
+    let link = if r["type"] == "system" && r["subtype"] == "compact_boundary" {
+        &r["logicalParentUuid"]
+    } else {
+        &r["parentUuid"]
+    };
+    link.as_str().map(str::to_string)
 }
 
 /// The text of a user record whose content is a single text block.
@@ -135,7 +161,7 @@ fn load(session: &ResolvedSession, limits: &ReadLimits) -> Result<Loaded, Handof
         }
         leaf = Some(uuid.to_string());
         nodes.entry(uuid.to_string()).or_insert(Node {
-            parent: r["parentUuid"].as_str().map(str::to_string),
+            parent: parent_of(r),
             kind: kind_of(r),
             same_session: r["sessionId"].as_str() == Some(&session.native_id),
             timestamp: r["timestamp"].as_str().map(str::to_string),

@@ -324,3 +324,135 @@ fn history_is_limited() {
         .unwrap();
     assert_eq!(texts(&two), ["INDIA-THREE", "GOLF-ONE"]);
 }
+
+/// MAIN's 81 lines followed by what `/compact` writes (Claude Code
+/// 2.1.293): a boundary that starts a new chain, pointing back with
+/// `logicalParentUuid`, the summary, and the records of the command.
+fn compacted() -> Vec<String> {
+    let mut lines = raw_lines(MAIN)[..81].to_vec();
+    let last = lines
+        .iter()
+        .rev()
+        .find_map(|l| {
+            let v: Value = serde_json::from_str(l).unwrap();
+            v["uuid"].as_str().map(str::to_string)
+        })
+        .unwrap();
+    let user = |uuid: &str, parent: &str, content: &str, extra: Value| {
+        let mut v = json!({
+            "type": "user", "uuid": uuid, "parentUuid": parent, "sessionId": MAIN,
+            "isSidechain": false, "timestamp": "2026-10-09T01:00:00.000Z",
+            "message": {"role": "user", "content": content},
+        });
+        v.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        v.to_string()
+    };
+    lines.push(
+        json!({
+            "type": "system", "subtype": "compact_boundary", "uuid": "c-boundary",
+            "parentUuid": null, "logicalParentUuid": last, "sessionId": MAIN,
+            "isSidechain": false, "timestamp": "2026-10-09T01:00:00.000Z",
+            "compactMetadata": {"trigger": "manual"},
+        })
+        .to_string(),
+    );
+    lines.push(user(
+        "c-summary",
+        "c-boundary",
+        "This session is being continued from a previous conversation.",
+        json!({"isCompactSummary": true, "isVisibleInTranscriptOnly": true}),
+    ));
+    lines.push(user(
+        "c-caveat",
+        "c-summary",
+        "<local-command-caveat>Caveat</local-command-caveat>",
+        json!({"isMeta": true}),
+    ));
+    lines.push(user(
+        "c-command",
+        "c-caveat",
+        "<command-name>/compact</command-name>\n            <command-message>compact</command-message>\n            <command-args></command-args>",
+        json!({}),
+    ));
+    lines.push(user(
+        "c-stdout",
+        "c-command",
+        "<local-command-stdout>Compacted</local-command-stdout>",
+        json!({}),
+    ));
+    lines
+}
+
+/// `lines` and a finished turn answering `text` after them.
+fn with_turn(mut lines: Vec<String>, parent: &str, text: &str) -> Vec<String> {
+    let rec = |v: Value| v.to_string();
+    let base =
+        json!({"sessionId": MAIN, "isSidechain": false, "timestamp": "2026-10-09T01:01:00.000Z"});
+    let mut push = |mut v: Value| {
+        v.as_object_mut()
+            .unwrap()
+            .extend(base.as_object().unwrap().clone());
+        lines.push(rec(v));
+    };
+    push(
+        json!({"type": "user", "uuid": "n-user", "parentUuid": parent,
+        "message": {"role": "user", "content": "next"}}),
+    );
+    push(
+        json!({"type": "assistant", "uuid": "n-answer", "parentUuid": "n-user",
+        "message": {"id": "msg_next", "role": "assistant", "stop_reason": "end_turn",
+            "content": [{"type": "text", "text": text}]}}),
+    );
+    push(
+        json!({"type": "system", "subtype": "turn_duration", "uuid": "n-end",
+        "parentUuid": "n-answer"}),
+    );
+    lines
+}
+
+#[test]
+fn history_reaches_back_across_a_compaction() {
+    let s = Setup::new(
+        MAIN,
+        &join(&with_turn(compacted(), "c-stdout", "AFTER-ONE")),
+    );
+    assert_eq!(
+        texts(&s.history().unwrap()),
+        [
+            "AFTER-ONE",
+            "INDIA-THREE",
+            "GOLF-ONE",
+            TOOL_ANSWER,
+            "ALPHA-ONE"
+        ]
+    );
+    assert_eq!(s.latest().unwrap().text, "AFTER-ONE");
+}
+
+#[test]
+fn right_after_a_compaction_the_last_answer_is_still_the_latest() {
+    let s = Setup::new(MAIN, &join(&compacted()));
+    assert_eq!(s.latest().unwrap().text, "INDIA-THREE");
+    assert_eq!(
+        texts(&s.history().unwrap()),
+        ["INDIA-THREE", "GOLF-ONE", TOOL_ANSWER, "ALPHA-ONE"]
+    );
+}
+
+#[test]
+fn a_prompt_sent_after_a_compaction_is_a_running_turn() {
+    let mut lines = compacted();
+    lines.push(
+        json!({"type": "user", "uuid": "n-user", "parentUuid": "c-stdout",
+            "sessionId": MAIN, "isSidechain": false,
+            "message": {"role": "user", "content": "next"}})
+        .to_string(),
+    );
+    let err = Setup::new(MAIN, &join(&lines)).latest().unwrap_err();
+    assert!(
+        matches!(err, HandoffError::CompletionUncertain(_)),
+        "{err:?}"
+    );
+}

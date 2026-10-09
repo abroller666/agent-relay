@@ -51,6 +51,7 @@ Codexへの256KiBは利用枠の都合で未検証。timeoutは再現してい�
 - `--resume <id>`：同じsession ID・同じファイルに追記。
 - `--resume <id> --fork-session`：新しいsession ID。**最初の発言まではファイルが作られない**。作られると親の履歴がコピーされ、コピー分の `sessionId` も新IDに書き換わる。
 - rewind（Esc Esc → Restore conversation）：**その時点では何も記録されない**。次の発言のuserレコードが、巻き戻し先の `turn_duration` を `parentUuid` に持つ。つまり有効な分岐は「ファイル中で最後の会話レコードから親をたどった鎖」。
+- `/compact`：`system` `compact_boundary` レコードが `parentUuid: null` で新しい鎖を始め、`logicalParentUuid` に圧縮前の最後のレコードを持つ。続けて要約（`isCompactSummary: true` の user）、コマンドの注意書き（`isMeta: true`）、`<command-name>/compact</command-name>`、`<local-command-stdout>` の user レコードが書かれる。境界では `logicalParentUuid` をたどり、これらの user レコードはターンの区切りとして扱わない（圧縮前の回答も一覧に出し、圧縮直後も最後の回答を送れる）。2.1.293の実セッションで確認。
 - Herdrがidleを検知した時点（50ms間隔で観測）で、`turn_duration` まで書き込み済みだった（2回とも4〜7ms以内に読み取り成功）。
 
 ### 抽出規則（実装）

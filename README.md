@@ -16,7 +16,7 @@ Supported agents: Claude Code and Codex, on either side.
    ↑↓ / `Ctrl+p` `Ctrl+n` / `j` `k` move, `Space` or `1`–`9` pick, `Enter` confirms.
 4. Type the instruction (it may be left empty: then only the label and the answer are sent). `Enter` sends, `Alt+Enter` inserts a line break, `Ctrl+]` picks B again, `Ctrl+o` chooses which answer to send, `Ctrl+r` re-reads the latest answer, `Esc` / `Ctrl+g` / `Ctrl+q` quit (in the target list too).
    Committing IME input or pasting several lines never sends.
-   `Ctrl+o` lists A's finished answers of the current conversation (newest first, up to 50, with time, first line and size); pick one with a number or ↑↓ and `Enter`, or leave with `Ctrl+o`. Without a pick the latest answer is sent. Rewound and interrupted turns are not listed; an interrupted latest turn does not hide older answers.
+   `Ctrl+o` lists A's finished answers of the current conversation (newest first, up to 50, with time, first line and size); pick one with a number or ↑↓ and `Enter`, or leave with `Ctrl+o`. Without a pick the latest answer is sent. Rewound and interrupted turns are not listed; an interrupted latest turn does not hide older answers. Answers from before a `/compact` are listed too.
 5. Right before sending, both panes are checked again (same agent session, idle or done) and the answer is read again. For the latest answer, if A's answer changed, nothing is sent: the new answer is loaded, your instruction is kept, and you decide again. An answer picked with `Ctrl+o` is sent even if newer answers appeared, as long as it is still part of the conversation.
 6. B receives one prompt, submitted once: your instruction, a short label, and A's answer verbatim between fence lines that do not occur in it.
 
