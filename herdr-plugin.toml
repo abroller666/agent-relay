@@ -1,6 +1,6 @@
 id = "abroller666.agent-relay"
 name = "Agent Relay"
-version = "0.1.0"
+version = "0.1.1"
 min_herdr_version = "0.9.3"
 description = "Hand the last finished answer of the AI in this pane, plus your instruction, to the AI in another pane"
 platforms = ["linux", "macos"]

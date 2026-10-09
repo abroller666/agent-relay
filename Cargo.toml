@@ -1,6 +1,6 @@
 [package]
 name = "agent-relay"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.85"
 description = "Hand an AI agent's last finished answer, plus your instruction, to the AI in another Herdr pane"

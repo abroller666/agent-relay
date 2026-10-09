@@ -103,7 +103,7 @@ AIのセッション履歴（Claude Code は `~/.claude/projects`、Codex は `~
 herdr plugin install abroller666/agent-relay
 ```
 
-Herdrが取得元とビルドコマンド（`sh scripts/build.sh`。中で `cargo build --release` を実行）を表示し、確認してから実行します。そのため `cargo`（Rust 1.85 以降）が必要です。リリースを固定するときは `--ref v0.1.0` を付けます。`plugin update` はまだないので、更新するときはもう一度インストールします。
+Herdrが取得元とビルドコマンド（`sh scripts/build.sh`。中で `cargo build --release` を実行）を表示し、確認してから実行します。そのため `cargo`（Rust 1.85 以降）が必要です。リリースを固定するときは `--ref v0.1.1` を付けます。`plugin update` はまだないので、更新するときはもう一度インストールします。
 
 手元に取得して使う場合：
 
