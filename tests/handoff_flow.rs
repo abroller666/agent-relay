@@ -3,6 +3,7 @@
 
 use std::cell::RefCell;
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use agent_relay::adapters::{AdapterRegistry, AnswerAdapter};
 use agent_relay::config::PromptLanguage;
@@ -29,7 +30,7 @@ fn info(pane: &str, agent: &str, session: &str, status: &str) -> Value {
 }
 
 struct FakeHerdr {
-    agents: RefCell<Vec<Value>>,
+    agents: Rc<RefCell<Vec<Value>>>,
     prompts: RefCell<Vec<(String, String)>>,
     prompt_result: RefCell<Result<(), HandoffError>>,
 }
@@ -37,10 +38,10 @@ struct FakeHerdr {
 impl FakeHerdr {
     fn new() -> Self {
         Self {
-            agents: RefCell::new(vec![
+            agents: Rc::new(RefCell::new(vec![
                 info("w1:pA", "claude", SRC_SESSION, "idle"),
                 info("w1:pB", "codex", DST_SESSION, "done"),
-            ]),
+            ])),
             prompts: RefCell::new(Vec::new()),
             prompt_result: RefCell::new(Ok(())),
         }
@@ -112,6 +113,16 @@ struct FakeAdapter {
     path: RefCell<PathBuf>,
     /// Older answers, newest first, below the latest one.
     older: RefCell<Vec<(String, String)>>,
+    /// Runs after each read, as if Herdr changed while it was read.
+    on_read: RefCell<Option<Box<dyn Fn()>>>,
+}
+
+impl FakeAdapter {
+    fn read(&self) {
+        if let Some(f) = &*self.on_read.borrow() {
+            f();
+        }
+    }
 }
 
 fn snap(session: &ResolvedSession, id: &str, text: &str) -> AnswerSnapshot {
@@ -139,6 +150,7 @@ impl AnswerAdapter for FakeAdapter {
         _: &ReadLimits,
     ) -> Result<AnswerSnapshot, HandoffError> {
         let (id, text) = self.answer.borrow().clone()?;
+        self.read();
         Ok(snap(session, &id, &text))
     }
     fn completed_answers(
@@ -148,6 +160,7 @@ impl AnswerAdapter for FakeAdapter {
         max: usize,
     ) -> Result<Vec<AnswerSnapshot>, HandoffError> {
         let latest = self.answer.borrow().clone().ok();
+        self.read();
         Ok(latest
             .into_iter()
             .chain(self.older.borrow().iter().cloned())
@@ -182,6 +195,7 @@ impl World {
                 ))),
                 path: RefCell::new(PathBuf::from("/fake.jsonl")),
                 older: RefCell::new(vec![("msg_0".into(), "an older answer".into())]),
+                on_read: RefCell::new(None),
             }),
             config: Config::defaults(std::path::Path::new("/home/user")),
         }
@@ -218,6 +232,50 @@ fn changed_source_blocks_send() {
     let w = World::new();
     let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
     w.set_answer("msg_2", "a newer answer");
+    let err = w
+        .service()
+        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .unwrap_err();
+    assert!(matches!(err, HandoffError::SourceChanged(_)), "{err:?}");
+    assert_eq!(w.herdr.sent(), 0);
+}
+
+#[test]
+fn source_starting_a_turn_during_the_read_blocks_send() {
+    let w = World::new();
+    let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
+    let agents = Rc::clone(&w.herdr.agents);
+    *w.adapters.0.on_read.borrow_mut() = Some(Box::new(move || {
+        let mut agents = agents.borrow_mut();
+        let source = agents.iter_mut().find(|a| a["pane_id"] == "w1:pA").unwrap();
+        source["agent_status"] = json!("working");
+        source["state_change_seq"] = json!(11);
+    }));
+    let err = w
+        .service()
+        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            HandoffError::AgentNotReady(_) | HandoffError::SourceChanged(_)
+        ),
+        "{err:?}"
+    );
+    assert_eq!(w.herdr.sent(), 0);
+}
+
+#[test]
+fn source_turn_finishing_during_the_read_blocks_send() {
+    // Idle again by the time it is checked, but a turn ran meanwhile.
+    let w = World::new();
+    let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
+    let agents = Rc::clone(&w.herdr.agents);
+    *w.adapters.0.on_read.borrow_mut() = Some(Box::new(move || {
+        let mut agents = agents.borrow_mut();
+        let source = agents.iter_mut().find(|a| a["pane_id"] == "w1:pA").unwrap();
+        source["state_change_seq"] = json!(12);
+    }));
     let err = w
         .service()
         .send(&answer, &w.herdr.binding("w1:pB"), "go")

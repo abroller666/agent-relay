@@ -115,7 +115,7 @@ impl<'a> HandoffService<'a> {
                 "the pane belongs to another Herdr server".into(),
             ));
         }
-        self.current_source(source)?;
+        let before = self.current_source(source)?;
         let adapter = self
             .adapters
             .adapter(source.agent)
@@ -147,6 +147,14 @@ impl<'a> HandoffService<'a> {
                     "the source has a newer answer; review it before sending".into(),
                 ));
             }
+        }
+        // As in `prepare`: the source must not have started another turn
+        // while its transcript was read.
+        let after = self.current_source(source)?;
+        if after.state_change_seq != before.state_change_seq {
+            return Err(HandoffError::SourceChanged(
+                "the source changed state while its answer was checked".into(),
+            ));
         }
         let now = match self.agent(&target.pane_id) {
             Ok(now) => now,
