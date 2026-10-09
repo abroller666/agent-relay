@@ -21,7 +21,8 @@ use std::time::Duration;
 use serde_json::{Value, json};
 
 use crate::error::HandoffError;
-use crate::herdr::{AgentSnapshot, HerdrApi};
+use crate::herdr::{AgentSnapshot, HerdrApi, PaneProcess};
+use crate::session::rollout_segment;
 
 /// A thread loaded in the daemon.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +44,10 @@ pub enum DaemonError {
 pub trait CodexDaemon {
     /// The threads the daemon has loaded.
     fn loaded_threads(&self) -> Result<Vec<DaemonThread>, DaemonError>;
+    /// The files process `pid` has open; None when that cannot be told.
+    fn files_open_by(&self, _pid: u32) -> Option<Vec<PathBuf>> {
+        None
+    }
 }
 
 /// The agent in `pane_id`, with its session bound as described above.
@@ -57,14 +62,32 @@ pub fn resolve_agent(
     let Some(daemon) = daemon.filter(|_| info["agent"] == "codex") else {
         return reported;
     };
-    // Herdr's report is trusted only where Herdr's hook ran in the pane
-    // itself: Codex started with --no-daemon, or no daemon at all.
-    if started_without_daemon(herdr, pane_id) {
-        return reported;
+    let processes = herdr.foreground_processes(pane_id).unwrap_or_default();
+    let codex: Vec<&PaneProcess> = processes.iter().filter(|p| is_codex(p)).collect();
+    // Herdr's report stands only when the pane's own Codex process writes
+    // the thread it names. `codex --no-daemon` writes its rollout itself;
+    // on the daemon, the daemon does. Where it came from cannot be told
+    // otherwise: the daemon may have reported another pane's thread here.
+    if let Ok(agent) = &reported {
+        if holds_rollout(daemon, &codex, &agent.binding.session.value) {
+            return reported;
+        }
+    }
+    if codex
+        .iter()
+        .any(|p| p.argv.iter().skip(1).any(|a| a == "--no-daemon"))
+    {
+        return Err(HandoffError::SessionUnavailable(
+            "Herdr's session for this Codex pane is not the one it runs; restart Codex in this pane".into(),
+        ));
     }
     let threads = match daemon.loaded_threads() {
         Ok(threads) => threads,
-        Err(DaemonError::NotRunning) => return reported,
+        Err(DaemonError::NotRunning) => {
+            return Err(HandoffError::SessionUnavailable(
+                "cannot confirm which Codex session this pane runs; send it one prompt, or restart Codex in this pane".into(),
+            ));
+        }
         Err(DaemonError::Failed(e)) => {
             return Err(HandoffError::SessionUnavailable(format!(
                 "cannot ask the Codex daemon which thread this pane shows ({e})"
@@ -123,15 +146,22 @@ pub fn match_thread(
     }
 }
 
-/// Whether the pane's Codex was started with `--no-daemon`.
-fn started_without_daemon(herdr: &dyn HerdrApi, pane_id: &str) -> bool {
-    herdr.foreground_argv(pane_id).is_ok_and(|procs| {
-        procs.iter().any(|argv| {
-            let is_codex = argv
-                .first()
-                .and_then(|a| Path::new(a).file_name())
-                .is_some_and(|n| n.to_string_lossy().starts_with("codex"));
-            is_codex && argv.iter().skip(1).any(|a| a == "--no-daemon")
+fn is_codex(p: &PaneProcess) -> bool {
+    p.argv
+        .first()
+        .and_then(|a| Path::new(a).file_name())
+        .is_some_and(|n| n.to_string_lossy().starts_with("codex"))
+}
+
+/// Whether one of `processes` has a rollout file of thread `id` open.
+fn holds_rollout(daemon: &dyn CodexDaemon, processes: &[&PaneProcess], id: &str) -> bool {
+    processes.iter().any(|p| {
+        daemon.files_open_by(p.pid).is_some_and(|files| {
+            files.iter().any(|f| {
+                f.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| rollout_segment(n, id).is_some())
+            })
         })
     })
 }
@@ -211,6 +241,43 @@ impl CodexDaemon for DaemonClient {
         }
         Ok(threads)
     }
+
+    fn files_open_by(&self, pid: u32) -> Option<Vec<PathBuf>> {
+        open_files(pid)
+    }
+}
+
+/// The files process `pid` has open: `/proc` on Linux, `lsof` elsewhere.
+fn open_files(pid: u32) -> Option<Vec<PathBuf>> {
+    let proc_fd = PathBuf::from(format!("/proc/{pid}/fd"));
+    if let Ok(entries) = std::fs::read_dir(&proc_fd) {
+        return Some(
+            entries
+                .filter_map(Result::ok)
+                .filter_map(|e| std::fs::read_link(e.path()).ok())
+                .collect(),
+        );
+    }
+    let lsof = ["/usr/sbin/lsof", "/usr/bin/lsof"]
+        .into_iter()
+        .find(|p| Path::new(p).exists())
+        .unwrap_or("lsof");
+    let out = std::process::Command::new(lsof)
+        .args(["-a", "-w", "-Fn", "-p", &pid.to_string()])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| l.strip_prefix('n'))
+            .map(PathBuf::from)
+            .collect(),
+    )
 }
 
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -493,6 +560,21 @@ mod tests {
                     cwd: Some("/w".into())
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn open_files_lists_a_file_this_process_holds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("held.jsonl");
+        let _held = std::fs::File::create(&path).unwrap();
+        let files = open_files(std::process::id()).expect("open files of this process");
+        let want = std::fs::canonicalize(&path).unwrap();
+        assert!(
+            files
+                .iter()
+                .any(|f| std::fs::canonicalize(f).ok().as_ref() == Some(&want)),
+            "{files:?}"
         );
     }
 

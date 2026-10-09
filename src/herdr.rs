@@ -61,6 +61,13 @@ impl AgentSnapshot {
     }
 }
 
+/// A process in the foreground of a pane, from `pane.process_info`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PaneProcess {
+    pub pid: u32,
+    pub argv: Vec<String>,
+}
+
 /// A pane of the tab, for the target list.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 pub struct PaneSummary {
@@ -116,8 +123,8 @@ pub trait HerdrApi {
     fn prompt(&self, pane_id: &str, text: &str) -> Result<(), HandoffError>;
     fn list_panes(&self) -> Result<Vec<PaneSummary>, HandoffError>;
     fn layout(&self, pane_id: &str) -> Result<Layout, HandoffError>;
-    /// The argument vectors of the pane's foreground processes.
-    fn foreground_argv(&self, _pane_id: &str) -> Result<Vec<Vec<String>>, HandoffError> {
+    /// The pane's foreground processes.
+    fn foreground_processes(&self, _pane_id: &str) -> Result<Vec<PaneProcess>, HandoffError> {
         Ok(Vec::new())
     }
     /// (workspace id, label) of every workspace, in Herdr's order.
@@ -293,7 +300,7 @@ impl HerdrApi for HerdrClient {
             .map_err(|e| HandoffError::Herdr(format!("pane.list: {e}")))
     }
 
-    fn foreground_argv(&self, pane_id: &str) -> Result<Vec<Vec<String>>, HandoffError> {
+    fn foreground_processes(&self, pane_id: &str) -> Result<Vec<PaneProcess>, HandoffError> {
         let result = self
             .call("pane.process_info", json!({"pane_id": pane_id}))
             .map_err(CallError::into_herdr)?;
@@ -301,13 +308,16 @@ impl HerdrApi for HerdrClient {
             .as_array()
             .into_iter()
             .flatten()
-            .map(|p| {
-                p["argv"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|a| a.as_str().map(str::to_string))
-                    .collect()
+            .filter_map(|p| {
+                Some(PaneProcess {
+                    pid: u32::try_from(p["pid"].as_u64()?).ok()?,
+                    argv: p["argv"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|a| a.as_str().map(str::to_string))
+                        .collect(),
+                })
             })
             .collect())
     }

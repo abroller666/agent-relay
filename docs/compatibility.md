@@ -130,6 +130,6 @@ Codex 0.161.0 の TUI は、既定で共有のバックグラウンド app-serve
 
 ### 対応（2026-10-09）
 
-既定（デーモン経由）の Codex のペインは、ペインの端末タイトル「スレッド名 | プロジェクト」と作業ディレクトリが、デーモン（`$CODEX_HOME/app-server-control/app-server-control.sock`、Unix ソケット上の WebSocket JSON-RPC）の `thread/loaded/list` → `thread/read` の `name`・`cwd` と1件だけ一致したとき、そのスレッドIDで扱う（`src/codex_daemon.rs`）。Herdr の登録をそのまま使うのは、Herdr のフックがそのペインの中で動いたと言える場合だけ：ペインの Codex の起動引数（`pane.process_info` の `argv`）に `--no-daemon` がある、またはデーモンが動いていない（ソケットに接続先がない）。それ以外はタイトル照合で決め、照合できなければ送らない（Herdr の登録がデーモンの一覧にないことは `--no-daemon` の根拠にしない）。デーモンが動いているのに問い合わせに失敗したとき（タイムアウトなど）も送らない。
+既定（デーモン経由）の Codex のペインは、ペインの端末タイトル「スレッド名 | プロジェクト」と作業ディレクトリが、デーモン（`$CODEX_HOME/app-server-control/app-server-control.sock`、Unix ソケット上の WebSocket JSON-RPC）の `thread/loaded/list` → `thread/read` の `name`・`cwd` と1件だけ一致したとき、そのスレッドIDで扱う（`src/codex_daemon.rs`）。Herdr の登録をそのまま使うのは、ペインの前面の Codex プロセス（`pane.process_info` の `pid`）が、登録されたスレッドの rollout ファイルを開いているときだけ（`--no-daemon` の Codex は自分で rollout を書き、開いたままにしている：実測。デーモン経由のスレッドはデーモンが開く）。起動引数の `--no-daemon` や「デーモンが動いていない」ことは、登録の出所の根拠にしない：デーモンを起動したペインが後で `--no-daemon` で動いていても、デーモンはそのペインの環境で他のペインのセッションを報告しうるため（Herdr 0.9.3 はこの上書きを受け付ける）。`--no-daemon` のペインで証拠がなければ送らない（タイトル照合もしない）。それ以外はタイトル照合で決め、照合できない・デーモンが動いていない・問い合わせに失敗したときは送らない。開いているファイルは Linux では `/proc/<pid>/fd`、それ以外では `lsof` で調べる。
 
 実機確認：同じディレクトリでデーモン経由の Codex 2つと Claude 1つを動かし、Codex 2つが別スレッドとして特定され、Codex→Claude・Claude→Codex の送信がともに処理された。同名スレッドの曖昧さ、名前が付く前、デーモンが動いていない／問い合わせに失敗した場合、`--no-daemon` の判定は自動テストで確認。Rust 1.85.0 でもビルド・全テスト成功。

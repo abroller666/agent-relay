@@ -216,7 +216,7 @@ pub fn find_codex_rollouts(
 
 /// For a rollout file of thread `id`: Some(None) for its base file,
 /// Some(Some(segment)) for a segment, None for any other file.
-fn rollout_segment(name: &str, id: &str) -> Option<Option<String>> {
+pub fn rollout_segment(name: &str, id: &str) -> Option<Option<String>> {
     let stem = name.strip_prefix("rollout-")?.strip_suffix(".jsonl")?;
     // `YYYY-MM-DDTHH-MM-SS-<id>[_<segment>]`
     let (time, rest) = (stem.get(..19)?, stem.get(19..)?.strip_prefix('-')?);
