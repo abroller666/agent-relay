@@ -18,7 +18,7 @@ use super::{AnswerAdapter, fingerprint, with_retries};
 use crate::config::{Config, ReadLimits};
 use crate::error::HandoffError;
 use crate::model::{AgentKind, AnswerSnapshot, PaneBinding, ResolvedSession};
-use crate::session::find_codex_rollouts;
+use crate::session::{find_codex_rollouts, rollout_segment};
 use crate::transcript::{name, read_at, read_records};
 
 pub struct CodexAdapter;
@@ -302,7 +302,7 @@ fn read_history(
             break;
         };
         let end = limit.map_or(end, |l| l.min(end));
-        match older_file(&path, &base_thread, end, limits)? {
+        match older_file(&path, &thread, &base_thread, limits)? {
             Some(older) => {
                 path = older;
                 thread = base_thread;
@@ -314,14 +314,21 @@ fn read_history(
     Ok(answers)
 }
 
-/// The newest rollout of `thread`, other than `current`, that holds
-/// records before ordinal `end`. Rollouts of a thread share one root.
+/// The rollout of `thread` that `current` (of `current_thread`) continues
+/// from: the newest one created before `current`, which was the thread's
+/// active file when `current` was started by a rewind or fork. A file of
+/// the thread created later (a rewind after a fork) holds history the
+/// fork never had, even where its ordinals fall below the fork's end.
+/// Rollouts of a thread share one root.
 fn older_file(
     current: &Path,
+    current_thread: &str,
     thread: &str,
-    end: u64,
     limits: &ReadLimits,
 ) -> Result<Option<PathBuf>, HandoffError> {
+    let Some(started) = created(current, current_thread) else {
+        return Ok(None);
+    };
     // <root>/YYYY/MM/DD/<file>
     let Some(root) = current.ancestors().nth(4) else {
         return Ok(None);
@@ -334,25 +341,31 @@ fn older_file(
     let candidates = rollouts
         .segments
         .iter()
-        .rev()
-        .map(|(_, p)| p.clone())
-        .chain(rollouts.base.clone());
-    for candidate in candidates {
-        if candidate == current {
-            continue;
-        }
-        if first_ordinal(&candidate, limits)?.is_some_and(|o| o < end) {
-            return Ok(Some(candidate));
-        }
-    }
-    Ok(None)
+        .map(|(_, p)| p)
+        .chain(rollouts.base.as_ref())
+        .filter(|p| p.as_path() != current)
+        .filter_map(|p| Some((created(p, thread)?, p)))
+        .filter(|(at, _)| *at < started);
+    Ok(candidates.max_by_key(|(at, _)| *at).map(|(_, p)| p.clone()))
 }
 
-fn first_ordinal(path: &Path, limits: &ReadLimits) -> Result<Option<u64>, HandoffError> {
-    match read_records(path, limits)?.next() {
-        Some(r) => Ok(r?.value["ordinal"].as_u64()),
-        None => Ok(None),
+/// When rollout `path` of `thread` was started, in Unix milliseconds: the
+/// time in its segment ID, or for the base file in the thread ID (both
+/// UUIDv7).
+fn created(path: &Path, thread: &str) -> Option<u64> {
+    let name = path.file_name()?.to_str()?;
+    match rollout_segment(name, thread)? {
+        Some(segment) => uuid_v7_millis(&segment),
+        None => uuid_v7_millis(thread),
     }
+}
+
+fn uuid_v7_millis(id: &str) -> Option<u64> {
+    let hex: String = id.chars().filter(|&c| c != '-').collect();
+    if hex.len() != 32 || hex.as_bytes()[12] != b'7' {
+        return None;
+    }
+    u64::from_str_radix(&hex[..12], 16).ok()
 }
 
 /// The `output_text` parts of a message, in order.

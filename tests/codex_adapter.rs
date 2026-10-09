@@ -384,3 +384,66 @@ fn history_while_a_turn_runs_lists_the_earlier_answers() {
         ["## 結果", "CHARLIE-THREE"]
     );
 }
+
+/// A rewind of PLAIN back to its start, as segment `segment` (a UUIDv7):
+/// LIMA-THREE and NOVEMBER-RESUME, renumbered from ordinal 1.
+fn plain_rewound_to_start(segment: &str) -> (String, String) {
+    let lines: Vec<String> = raw_lines(SEGMENT)
+        .iter()
+        .map(|l| {
+            edit(l, |v| {
+                let o = v["ordinal"].as_u64().unwrap();
+                v["ordinal"] = json!(o - 52);
+                if v["type"] == "session_meta" {
+                    v["payload"]["id"] = json!(PLAIN_ID);
+                    v["payload"]["history_base"]["thread_id"] = json!(PLAIN_ID);
+                    v["payload"]["history_base"]["end_ordinal_exclusive"] = json!(1);
+                }
+            })
+        })
+        .collect();
+    (
+        format!("rollout-2026-10-08T09-30-00-{PLAIN_ID}_{segment}.jsonl"),
+        join(&lines),
+    )
+}
+
+#[test]
+fn history_of_a_fork_ignores_a_parent_rewind_made_after_it() {
+    // The segment is newer than the fork and its ordinals fall below the
+    // fork's end, but the fork never had its answers.
+    let (name, content) = plain_rewound_to_start("01a118ea-0000-7000-8000-000000000000");
+    let s = Setup::new()
+        .fixture(PLAIN, None)
+        .fixture(FORK, None)
+        .file("08", &name, &content);
+    assert_eq!(
+        texts(&s.history(FORK_ID).unwrap()),
+        [
+            "MULTI-OK1209",
+            "MULTI-OK3",
+            "MIKE-FORK",
+            "- `pwd` を実行しました。",
+            "DELTA-FOUR"
+        ]
+    );
+}
+
+#[test]
+fn history_of_a_fork_continues_into_the_parent_rewind_it_was_made_from() {
+    let (name, content) = plain_rewound_to_start("01a118e8-0000-7000-8000-000000000000");
+    let s = Setup::new()
+        .fixture(PLAIN, None)
+        .fixture(FORK, None)
+        .file("08", &name, &content);
+    assert_eq!(
+        texts(&s.history(FORK_ID).unwrap()),
+        [
+            "MULTI-OK1209",
+            "MULTI-OK3",
+            "MIKE-FORK",
+            "NOVEMBER-RESUME",
+            "LIMA-THREE"
+        ]
+    );
+}
