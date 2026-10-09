@@ -8,6 +8,10 @@
 A [Herdr](https://herdr.dev) plugin that takes the last finished answer of the AI in one pane (A), adds your instruction, and submits both to the AI in another pane (B).
 Supported agents: Claude Code and Codex, on either side.
 
+![agent-relay: a Codex review handed to Claude Code](docs/demo.gif)
+
+A Codex pane's review is handed to Claude Code with one instruction: pick the target, type the instruction, `Enter`.
+
 ## Supported agents and languages
 
 | Agent | As A (source) | As B (target) | Verified with |

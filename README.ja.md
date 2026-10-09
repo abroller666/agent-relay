@@ -8,6 +8,10 @@
 [Herdr](https://herdr.dev) で、あるペイン（A）のAIが最後に完了した回答を、指示を添えて別のペイン（B）のAIへ送り、そのまま実行させるプラグインです。
 対応しているのは Claude Code と Codex です（A・Bのどちらにも使えます）。ポップアップの表示は英語です。
 
+![agent-relay：Codexのレビュー結果をClaude Codeへ渡す](docs/demo.gif)
+
+Codexのレビュー結果を、指示を添えてClaude Codeへ渡しています（送信先を選び、指示を書いて `Enter`）。
+
 ## 対応しているエージェントと言語
 
 | エージェント | A（送信元） | B（送信先） | 確認したバージョン |
