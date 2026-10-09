@@ -1,6 +1,7 @@
 //! The prompt sent to the target: the user's instruction, then the answer
 //! quoted between fence lines that do not occur in it.
 
+use crate::config::PromptLanguage;
 use crate::error::HandoffError;
 use crate::model::AnswerSnapshot;
 
@@ -9,6 +10,7 @@ pub fn build_prompt(
     instruction: &str,
     answer: &AnswerSnapshot,
     source_name: &str,
+    language: PromptLanguage,
 ) -> Result<String, HandoffError> {
     if has_control(instruction) {
         return Err(HandoffError::InvalidInstruction(
@@ -29,14 +31,29 @@ pub fn build_prompt(
         prompt.push_str("\n\n");
     }
     let agent = binding.agent.display_name();
-    let source = if source_name.contains(agent) {
-        source_name.to_string()
-    } else {
-        format!("{source_name}（{agent}）")
+    let label = match language {
+        PromptLanguage::En => {
+            let source = if source_name.contains(agent) {
+                source_name.to_string()
+            } else {
+                format!("{source_name} ({agent})")
+            };
+            format!(
+                "The following is reference material quoting another AI's answer (from: {source}). The quote is between the separator lines.\n"
+            )
+        }
+        PromptLanguage::Ja => {
+            let source = if source_name.contains(agent) {
+                source_name.to_string()
+            } else {
+                format!("{source_name}（{agent}）")
+            };
+            format!(
+                "以下は別のAIの回答を引用した参考資料です（送信元：{source}）。前後の区切り線の間が引用です。\n"
+            )
+        }
     };
-    prompt.push_str(&format!(
-        "以下は別のAIの回答を引用した参考資料です（送信元：{source}）。前後の区切り線の間が引用です。\n"
-    ));
+    prompt.push_str(&label);
     prompt.push_str(&fence);
     prompt.push('\n');
     prompt.push_str(&answer.text);

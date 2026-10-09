@@ -73,11 +73,13 @@ description = "hand the last answer to another pane"
 
 ## Configuration
 
-For non-standard Claude Code / Codex directories, put a `config.json` in the plugin's config directory (`HERDR_PLUGIN_CONFIG_DIR`):
+Put a `config.json` in the plugin's config directory (`HERDR_PLUGIN_CONFIG_DIR`) to change the language of the line introducing the quote, or for non-standard Claude Code / Codex directories. Every key is optional:
 
 ```json
-{"claude_roots": ["~/.claude/projects"], "codex_roots": ["~/.codex/sessions"], "max_payload_bytes": 262144}
+{"prompt_language": "en", "claude_roots": ["~/.claude/projects"], "codex_roots": ["~/.codex/sessions"], "max_payload_bytes": 262144}
 ```
+
+`prompt_language` is `"en"` (the default) or `"ja"`. It only changes the prompt sent to B; the popup stays in English.
 
 ## Data
 

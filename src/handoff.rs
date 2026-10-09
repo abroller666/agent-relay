@@ -165,7 +165,12 @@ impl<'a> HandoffService<'a> {
         require_ready(&now, "the target")?;
 
         let source_name = crate::names::pane_display(self.herdr, source);
-        let prompt = build_prompt(instruction, answer, &source_name)?;
+        let prompt = build_prompt(
+            instruction,
+            answer,
+            &source_name,
+            self.config.prompt_language,
+        )?;
         if prompt.len() > self.config.max_payload_bytes {
             return Err(HandoffError::PayloadTooLarge(format!(
                 "{} bytes (limit {} bytes)",

@@ -26,11 +26,13 @@
    ```
    （入力した指示）
 
-   以下は別のAIの回答を引用した参考資料です（送信元：Claude Code ~/dev/app）。前後の区切り線の間が引用です。
+   The following is reference material quoting another AI's answer (from: Claude Code ~/dev/app). The quote is between the separator lines.
    =====
    （Aの回答。原文のまま）
    =====
    ```
+
+   回答の前の一文は既定で英語です。設定の `"prompt_language": "ja"` で「以下は別のAIの回答を引用した参考資料です（送信元：…）。前後の区切り線の間が引用です。」になります。
 
 Herdrが入力を受け付けると、ポップアップはすぐに閉じます。これは受け付けられたことだけを意味するので、Bでの処理の完了はBのペインで確認してください。送信できたか確認できなかったときだけ、警告を表示したまま残ります。
 
@@ -98,7 +100,7 @@ description = "hand the last answer to another pane"
 
 ## 設定
 
-Claude Code や Codex の設定ディレクトリを標準以外の場所にしている場合は、プラグインの設定ディレクトリ（`HERDR_PLUGIN_CONFIG_DIR`）に `config.json` を置いて探索先を指定します。
+プラグインの設定ディレクトリ（`HERDR_PLUGIN_CONFIG_DIR`）に `config.json` を置くと、引用の前の一文の言語や、Claude Code・Codex の履歴の探索先（標準以外の場所にしている場合）を変えられます。
 ポップアップの環境変数はAIの環境と同じとは限らないため、`CLAUDE_CONFIG_DIR` などは読みません。
 
 ```json
@@ -108,11 +110,13 @@ Claude Code や Codex の設定ディレクトリを標準以外の場所にし�
   "max_payload_bytes": 262144,
   "max_file_bytes": 268435456,
   "max_line_bytes": 8388608,
-  "max_candidates": 10000
+  "max_candidates": 10000,
+  "prompt_language": "en"
 }
 ```
 
 どの項目も省略できます。知らない項目があるとエラーになります。
+`prompt_language` は送るプロンプトの引用の前の一文の言語で、`"en"`（既定）か `"ja"` です。ポップアップの表示は英語のままです。
 
 ## データの扱い
 

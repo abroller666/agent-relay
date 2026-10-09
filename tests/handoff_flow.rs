@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 
 use agent_relay::adapters::{AdapterRegistry, AnswerAdapter};
+use agent_relay::config::PromptLanguage;
 use agent_relay::config::{Config, ReadLimits};
 use agent_relay::error::HandoffError;
 use agent_relay::handoff::{HandoffService, SendOutcome};
@@ -388,7 +389,13 @@ fn snapshot(text: &str) -> AnswerSnapshot {
 #[test]
 fn prompt_puts_instruction_first_and_quotes_the_answer_verbatim() {
     let answer = snapshot("line 1\n=====\n```\ncode\n```\n");
-    let prompt = build_prompt("要約して", &answer, "Claude Code ~/work").unwrap();
+    let prompt = build_prompt(
+        "要約して",
+        &answer,
+        "Claude Code ~/work",
+        PromptLanguage::Ja,
+    )
+    .unwrap();
     assert!(prompt.starts_with("要約して\n"));
     assert!(
         prompt.contains("以下は別のAIの回答を引用した参考資料です（送信元：Claude Code ~/work）")
@@ -407,11 +414,14 @@ fn prompt_puts_instruction_first_and_quotes_the_answer_verbatim() {
 fn prompt_refuses_terminal_control_characters() {
     for text in ["a\x1b[201~b", "a\x07b", "a\u{9b}b"] {
         let answer = snapshot(text);
-        assert!(build_prompt("go", &answer, "x").is_err(), "{text:?}");
+        assert!(
+            build_prompt("go", &answer, "x", PromptLanguage::En).is_err(),
+            "{text:?}"
+        );
     }
     let answer = snapshot("tab\there\r\nnext");
-    assert!(build_prompt("go", &answer, "x").is_ok());
-    assert!(build_prompt("bad\x1b", &snapshot("ok"), "x").is_err());
+    assert!(build_prompt("go", &answer, "x", PromptLanguage::En).is_ok());
+    assert!(build_prompt("bad\x1b", &snapshot("ok"), "x", PromptLanguage::En).is_err());
 }
 
 #[test]
@@ -432,7 +442,7 @@ fn source_transcript_switch_blocks_send() {
 #[test]
 fn prompt_label_adds_the_agent_to_a_pane_name() {
     let answer = snapshot("text");
-    let prompt = build_prompt("go", &answer, "api server").unwrap();
+    let prompt = build_prompt("go", &answer, "api server", PromptLanguage::Ja).unwrap();
     assert!(
         prompt.contains("（送信元：api server（Claude Code））"),
         "{prompt}"
@@ -440,7 +450,7 @@ fn prompt_label_adds_the_agent_to_a_pane_name() {
 }
 
 #[test]
-fn sent_prompt_names_the_source_without_pane_ids() {
+fn sent_prompt_names_the_source_in_english_without_pane_ids() {
     let w = World::new();
     let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
     w.service()
@@ -448,7 +458,7 @@ fn sent_prompt_names_the_source_without_pane_ids() {
         .unwrap();
     let prompts = w.herdr.prompts.borrow();
     assert!(
-        prompts[0].1.contains("（送信元：Claude Code /srv/app）"),
+        prompts[0].1.contains("(from: Claude Code /srv/app)"),
         "{}",
         prompts[0].1
     );
@@ -458,7 +468,7 @@ fn sent_prompt_names_the_source_without_pane_ids() {
 #[test]
 fn empty_instruction_sends_label_and_answer() {
     let answer = snapshot("the answer");
-    let prompt = build_prompt("  \n", &answer, "Claude Code ~/work").unwrap();
+    let prompt = build_prompt("  \n", &answer, "Claude Code ~/work", PromptLanguage::Ja).unwrap();
     assert!(
         prompt.starts_with("以下は別のAIの回答を引用した参考資料です"),
         "{prompt}"
@@ -558,5 +568,42 @@ fn codex_on_the_shared_daemon_is_reached_through_its_title() {
     assert!(
         matches!(err, HandoffError::SessionUnavailable(_)),
         "{err:?}"
+    );
+}
+
+#[test]
+fn english_prompt_label() {
+    let answer = snapshot("the answer");
+    let prompt = build_prompt("go", &answer, "api server", PromptLanguage::En).unwrap();
+    assert!(prompt.starts_with("go\n\n"), "{prompt}");
+    assert!(
+        prompt.contains(
+            "The following is reference material quoting another AI's answer (from: api server (Claude Code)). The quote is between the separator lines.\n"
+        ),
+        "{prompt}"
+    );
+    assert!(!prompt.contains("送信元"), "{prompt}");
+}
+
+#[test]
+fn english_label_keeps_a_name_that_holds_the_agent() {
+    let answer = snapshot("text");
+    let prompt = build_prompt("go", &answer, "Claude Code ~/work", PromptLanguage::En).unwrap();
+    assert!(prompt.contains("(from: Claude Code ~/work)."), "{prompt}");
+}
+
+#[test]
+fn sent_prompt_uses_the_configured_language() {
+    let mut w = World::new();
+    w.config.prompt_language = PromptLanguage::Ja;
+    let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
+    w.service()
+        .send(&answer, &w.herdr.binding("w1:pB"), "go")
+        .unwrap();
+    let prompts = w.herdr.prompts.borrow();
+    assert!(
+        prompts[0].1.contains("（送信元：Claude Code /srv/app）"),
+        "{}",
+        prompts[0].1
     );
 }

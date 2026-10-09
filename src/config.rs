@@ -47,6 +47,17 @@ pub struct Config {
     pub limits: ReadLimits,
     /// The largest prompt (instruction plus answer) to send, in bytes.
     pub max_payload_bytes: usize,
+    /// The language of the line that introduces the quoted answer.
+    pub prompt_language: PromptLanguage,
+}
+
+/// `prompt_language` in `config.json`: `"en"` (the default) or `"ja"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PromptLanguage {
+    #[default]
+    En,
+    Ja,
 }
 
 impl Config {
@@ -56,6 +67,7 @@ impl Config {
             codex_roots: vec![home.join(".codex/sessions")],
             limits: ReadLimits::default(),
             max_payload_bytes: 256 * 1024,
+            prompt_language: PromptLanguage::default(),
         }
     }
 
@@ -81,6 +93,9 @@ impl Config {
         if let Some(n) = file.max_payload_bytes {
             config.max_payload_bytes = n;
         }
+        if let Some(language) = file.prompt_language {
+            config.prompt_language = language;
+        }
         if let Some(n) = file.max_file_bytes {
             config.limits.max_file_bytes = n;
         }
@@ -103,6 +118,7 @@ struct ConfigFile {
     max_file_bytes: Option<u64>,
     max_line_bytes: Option<usize>,
     max_candidates: Option<usize>,
+    prompt_language: Option<PromptLanguage>,
 }
 
 fn expand_home(path: &str, home: &Path) -> PathBuf {
@@ -120,6 +136,31 @@ mod tests {
     fn retry_waits_stay_within_three_seconds() {
         let total: Duration = ReadLimits::default().retry_delays.iter().sum();
         assert!(total <= Duration::from_secs(3), "{total:?}");
+    }
+
+    #[test]
+    fn prompt_language_defaults_to_english() {
+        let config = Config::defaults(Path::new("/home/me"));
+        assert_eq!(config.prompt_language, PromptLanguage::En);
+    }
+
+    #[test]
+    fn config_file_sets_the_prompt_language() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = Path::new("/home/me");
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"prompt_language": "ja"}"#,
+        )
+        .unwrap();
+        let config = Config::load(home, Some(dir.path())).unwrap();
+        assert_eq!(config.prompt_language, PromptLanguage::Ja);
+        std::fs::write(
+            dir.path().join("config.json"),
+            r#"{"prompt_language": "fr"}"#,
+        )
+        .unwrap();
+        assert!(Config::load(home, Some(dir.path())).is_err());
     }
 
     #[test]
