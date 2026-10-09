@@ -90,7 +90,7 @@ fn open() -> Result<(), String> {
     let height = herdr
         .layout(&pane_id)
         .map(|l| popup_height(l.area.height as usize))
-        .unwrap_or(16);
+        .unwrap_or(POPUP_ROWS);
     let opened = herdr.open_popup(
         &plugin_id,
         "console",
@@ -105,12 +105,12 @@ fn open() -> Result<(), String> {
     Ok(())
 }
 
-/// Popup height: 60% of the screen, at least 12 rows when they fit.
+/// Popup rows, whatever the screen size.
+const POPUP_ROWS: usize = 12;
+
+/// Popup height: `POPUP_ROWS`, less on a screen too short for it.
 fn popup_height(screen_rows: usize) -> usize {
-    (screen_rows * 3 / 5)
-        .max(12)
-        .min(screen_rows.saturating_sub(2))
-        .max(6)
+    POPUP_ROWS.min(screen_rows.saturating_sub(2)).max(6)
 }
 
 fn run_popup() -> Result<(), String> {
@@ -271,8 +271,9 @@ mod tests {
 
     #[test]
     fn popup_fits_the_screen() {
-        assert_eq!(popup_height(60), 36);
+        assert_eq!(popup_height(60), 12);
         assert_eq!(popup_height(16), 12);
+        assert_eq!(popup_height(14), 12);
         assert_eq!(popup_height(10), 8);
         assert_eq!(popup_height(5), 6);
     }
