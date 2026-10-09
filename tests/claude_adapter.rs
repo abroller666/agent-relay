@@ -456,3 +456,63 @@ fn a_prompt_sent_after_a_compaction_is_a_running_turn() {
         "{err:?}"
     );
 }
+
+/// MAIN's 81 lines and a prompt `content` after them, with no answer yet.
+fn prompted(mut lines: Vec<String>, parent: &str, content: &str, extra: Value) -> Vec<String> {
+    let mut v = json!({"type": "user", "uuid": "p-user", "parentUuid": parent,
+        "sessionId": MAIN, "isSidechain": false,
+        "message": {"role": "user", "content": content}});
+    v.as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    lines.push(v.to_string());
+    lines
+}
+
+fn last_uuid(lines: &[String]) -> String {
+    lines
+        .iter()
+        .rev()
+        .find_map(|l| {
+            let v: Value = serde_json::from_str(l).unwrap();
+            v["uuid"].as_str().map(str::to_string)
+        })
+        .unwrap()
+}
+
+#[test]
+fn a_prompt_that_looks_like_compaction_output_is_a_running_turn() {
+    let main = raw_lines(MAIN)[..81].to_vec();
+    let parent = last_uuid(&main);
+    for (content, extra) in [
+        (
+            "<local-command-stdout>Compacted</local-command-stdout> what is this?",
+            json!({}),
+        ),
+        ("<command-name>/compact</command-name>", json!({})),
+        ("a summary", json!({"isCompactSummary": true})),
+        ("meta", json!({"isMeta": true})),
+    ] {
+        let lines = prompted(main.clone(), &parent, content, extra);
+        let err = Setup::new(MAIN, &join(&lines)).latest().unwrap_err();
+        assert!(
+            matches!(err, HandoffError::CompletionUncertain(_)),
+            "{content}: {err:?}"
+        );
+    }
+}
+
+#[test]
+fn a_prompt_after_a_compaction_that_looks_like_its_output_is_a_running_turn() {
+    let lines = prompted(
+        compacted(),
+        "c-stdout",
+        "<local-command-stdout>pasted log</local-command-stdout>",
+        json!({}),
+    );
+    let err = Setup::new(MAIN, &join(&lines)).latest().unwrap_err();
+    assert!(
+        matches!(err, HandoffError::CompletionUncertain(_)),
+        "{err:?}"
+    );
+}

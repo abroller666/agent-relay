@@ -83,6 +83,7 @@ enum Kind {
 struct Node {
     parent: Option<String>,
     kind: Kind,
+    compaction: Option<Compaction>,
     same_session: bool,
     timestamp: Option<String>,
     offset: u64,
@@ -98,7 +99,6 @@ fn kind_of(r: &Value) -> Kind {
         },
         Some("system") if r["subtype"] == "turn_duration" => Kind::TurnDuration,
         Some("system" | "attachment") => Kind::Aside,
-        Some("user") if written_by_compaction(r) => Kind::Aside,
         Some("user") => Kind::User {
             interrupted: user_text(r)
                 .is_some_and(|t| t.starts_with("[Request interrupted by user")),
@@ -107,16 +107,38 @@ fn kind_of(r: &Value) -> Kind {
     }
 }
 
-/// Whether a user record is one that `/compact` writes after the boundary:
-/// the summary, the command's caveat (`isMeta`), the command and its
-/// output. None of them starts a turn.
-fn written_by_compaction(r: &Value) -> bool {
-    r["isCompactSummary"].as_bool() == Some(true)
-        || r["isMeta"].as_bool() == Some(true)
-        || user_text(r).is_some_and(|t| {
-            t.starts_with("<command-name>/compact</command-name>")
-                || t.starts_with("<local-command-stdout>")
-        })
+/// Where a record stands in what a compaction writes, in this order:
+/// the boundary, the summary, the caveat of the command (`isMeta`), the
+/// `/compact` command and its output. The caveat, command and output are
+/// written only for `/compact` typed by the user. None of these starts a
+/// turn, but a user record counts as one of them only in its place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Compaction {
+    Boundary,
+    Summary,
+    Caveat,
+    Command,
+    Output,
+}
+
+/// The compaction step of `r`, written after a record at step `parent`.
+fn compaction_step(r: &Value, parent: Option<Compaction>) -> Option<Compaction> {
+    use Compaction::*;
+    match r["type"].as_str() {
+        Some("system") if r["subtype"] == "compact_boundary" => return Some(Boundary),
+        Some("user") => {}
+        _ => return None,
+    }
+    let text = user_text(r).unwrap_or_default();
+    match parent? {
+        Boundary if r["isCompactSummary"].as_bool() == Some(true) => Some(Summary),
+        Summary if r["isMeta"].as_bool() == Some(true) => Some(Caveat),
+        Summary | Caveat if text.starts_with("<command-name>/compact</command-name>") => {
+            Some(Command)
+        }
+        Command if text.starts_with("<local-command-stdout>") => Some(Output),
+        _ => None,
+    }
 }
 
 /// The parent of a record. A compaction boundary starts a new chain
@@ -160,9 +182,22 @@ fn load(session: &ResolvedSession, limits: &ReadLimits) -> Result<Loaded, Handof
             continue;
         }
         leaf = Some(uuid.to_string());
+        let parent = parent_of(r);
+        let compaction = compaction_step(
+            r,
+            parent
+                .as_deref()
+                .and_then(|p| nodes.get(p))
+                .and_then(|n| n.compaction),
+        );
+        let kind = match compaction {
+            Some(_) => Kind::Aside,
+            None => kind_of(r),
+        };
         nodes.entry(uuid.to_string()).or_insert(Node {
-            parent: parent_of(r),
-            kind: kind_of(r),
+            parent,
+            kind,
+            compaction,
             same_session: r["sessionId"].as_str() == Some(&session.native_id),
             timestamp: r["timestamp"].as_str().map(str::to_string),
             offset: record.offset,
