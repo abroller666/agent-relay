@@ -8,6 +8,22 @@
 A [Herdr](https://herdr.dev) plugin that takes the last finished answer of the AI in one pane (A), adds your instruction, and submits both to the AI in another pane (B).
 Supported agents: Claude Code and Codex, on either side.
 
+## Supported agents and languages
+
+| Agent | As A (source) | As B (target) | Verified with |
+|---|---|---|---|
+| Claude Code | yes | yes | 2.1.293 (2.1.219 and older: no, they do not record turn completion) |
+| Codex CLI | yes | yes | 0.160.1, 0.161.0; both the default shared daemon and `--no-daemon` |
+
+Other agents Herdr detects are not supported: they are listed as targets with the reason and cannot be picked, and an answer is never read from them.
+
+| What | Language |
+|---|---|
+| Popup (menus, messages) | English |
+| Line introducing the quote in the prompt sent to B | English (default) or Japanese, set by `prompt_language` (see [Configuration](#configuration)) |
+| Your instruction and A's answer | Any; sent as is (Unicode, including IME input) |
+| README | English, [Japanese](README.ja.md) |
+
 ## Usage
 
 1. Focus A and press the key you bound to the plugin.
@@ -48,7 +64,7 @@ Details: [docs/compatibility.md](docs/compatibility.md).
 ## Requirements
 
 - Herdr 0.9.3 or later
-- Verified with Claude Code 2.1.293 and Codex CLI 0.160.1
+- Claude Code 2.1.293 / Codex CLI 0.160.1 or 0.161.0 verified (see [Supported agents and languages](#supported-agents-and-languages))
 - macOS (verified); Linux not verified
 - Rust 1.85 or later to build
 
