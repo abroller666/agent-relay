@@ -425,6 +425,26 @@ fn prompt_refuses_terminal_control_characters() {
 }
 
 #[test]
+fn prompt_strips_control_characters_from_the_source_name() {
+    let answer = snapshot("text");
+    let prompt = build_prompt(
+        "go",
+        &answer,
+        "evil\x1b[201~\rinjected\nline",
+        PromptLanguage::En,
+    )
+    .unwrap();
+    assert!(
+        !prompt.chars().any(|c| c.is_control() && c != '\n'),
+        "{prompt:?}"
+    );
+    assert!(
+        prompt.contains("(from: evil [201~ injected line (Claude Code))"),
+        "{prompt}"
+    );
+}
+
+#[test]
 fn source_transcript_switch_blocks_send() {
     // After a Codex rewind, A's history continues in a new file; the old
     // file still holds the rewound answer.

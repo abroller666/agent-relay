@@ -22,6 +22,13 @@ pub fn build_prompt(
             "the answer contains terminal control characters".into(),
         ));
     }
+    // The name comes from pane labels and directory names; it must not
+    // carry control characters or line breaks into the pasted prompt.
+    let source_name: String = source_name
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    let source_name = source_name.as_str();
     let fence = fence_for(&answer.text);
     let binding = &answer.session.binding;
     let mut prompt = String::new();
