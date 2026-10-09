@@ -15,7 +15,7 @@ use nix::sys::termios::{self, FlushArg, SetArg, Termios};
 use serde_json::json;
 
 use agent_relay::adapters::DefaultAdapters;
-use agent_relay::codex_daemon::{DaemonClient, resolve_agent};
+use agent_relay::codex_daemon::DaemonClient;
 use agent_relay::config::Config;
 use agent_relay::handoff::HandoffService;
 use agent_relay::herdr::{HerdrApi, HerdrClient};
@@ -75,7 +75,10 @@ fn open() -> Result<(), String> {
     state::sweep(&dir, state::MAX_AGE);
 
     let daemon = DaemonClient::from_env(&home());
-    let (source, error, terminal) = match resolve_agent(&herdr, Some(&daemon), &pane_id) {
+    // A config error is reported by the popup; the defaults suffice here.
+    let config = config().unwrap_or_else(|_| Config::defaults(&home()));
+    let service = HandoffService::new(&herdr, &DefaultAdapters, &config).with_codex_daemon(&daemon);
+    let (source, error, terminal) = match service.agent(&pane_id) {
         Ok(agent) => {
             let terminal = agent.binding.terminal_id.clone();
             (Some(agent.binding), None, terminal)
