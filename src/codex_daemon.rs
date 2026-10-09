@@ -241,7 +241,7 @@ const DISTINCT_LETTERS: usize = 16;
 /// is `screen` shows, if exactly one. An answer counts as shown when its
 /// last line of some length is on screen and occurs in no other answer:
 /// the latest answer is the last thing Codex prints, so its end stays in
-/// view. Text is compared by its letters and digits only, which survive
+/// view (unless the pane was scrolled back, and then nothing matches). Text is compared by its letters and digits only, which survive
 /// the TUI's wrapping, indentation and Markdown rendering. A quote of
 /// another answer shown together with the pane's own makes two, and
 /// nothing is decided.

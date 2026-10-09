@@ -139,7 +139,7 @@ pub trait HerdrApi {
     fn workspace_labels(&self) -> Result<Vec<(String, String)>, HandoffError> {
         Ok(Vec::new())
     }
-    /// The recent text of the pane's terminal, without colors.
+    /// The text the pane shows, without colors.
     fn screen_text(&self, _pane_id: &str) -> Result<String, HandoffError> {
         Err(HandoffError::Herdr("the pane's text cannot be read".into()))
     }
@@ -150,8 +150,13 @@ pub trait HerdrApi {
     }
 }
 
-/// How much of a pane's terminal `screen_text` reads.
-const SCREEN_LINES: u32 = 200;
+/// The `pane.read` request of `screen_text`: the visible part only. Reading
+/// recent lines (`recent`, `recent_unwrapped`) makes Herdr scroll the pane
+/// on screen through its history and back (Herdr 0.9.3), which the user
+/// sees.
+fn screen_read_params(pane_id: &str) -> Value {
+    json!({"pane_id": pane_id, "source": "visible"})
+}
 
 pub struct HerdrClient {
     socket_path: String,
@@ -317,10 +322,7 @@ impl HerdrApi for HerdrClient {
 
     fn screen_text(&self, pane_id: &str) -> Result<String, HandoffError> {
         let result = self
-            .call(
-                "pane.read",
-                json!({"pane_id": pane_id, "source": "recent_unwrapped", "lines": SCREEN_LINES}),
-            )
+            .call("pane.read", screen_read_params(pane_id))
             .map_err(CallError::into_herdr)?;
         result["read"]["text"]
             .as_str()
@@ -387,6 +389,15 @@ pub fn server_key(socket_path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_screen_is_read_without_scrolling_the_pane() {
+        // Reading recent lines makes Herdr scroll the pane on screen
+        // through its history and back; the visible part does not.
+        let params = screen_read_params("w1:p5");
+        assert_eq!(params["source"], "visible");
+        assert!(params.get("lines").is_none(), "{params}");
+    }
     use std::os::unix::net::UnixListener;
     use std::thread;
 
