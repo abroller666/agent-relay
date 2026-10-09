@@ -64,7 +64,7 @@ impl fmt::Display for HandoffError {
             Self::ThreadNameShared(name) => {
                 return write!(
                     f,
-                    "Run /rename in one of the Codex panes: another Codex thread in this directory is also named {name:?}"
+                    "Run /rename in one of the Codex panes: another Codex thread in this directory is also named {name:?}, and the screen does not show which one this is"
                 );
             }
             Self::TranscriptUnavailable(d) => ("Session transcript not found", d),

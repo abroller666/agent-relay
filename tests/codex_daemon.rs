@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use agent_relay::codex_daemon::{
     CodexDaemon, DaemonError, DaemonThread, match_thread, resolve_agent, resolve_target,
+    shown_on_screen,
 };
 use agent_relay::error::HandoffError;
 use agent_relay::herdr::{HerdrApi, Layout, PaneProcess, PaneSummary};
@@ -472,4 +473,85 @@ fn a_claude_target_is_bound_to_its_session_as_before() {
         matches!(err, HandoffError::SessionUnavailable(_)),
         "{err:?}"
     );
+}
+
+// Two threads may share a name. The pane then shows which one it is: its
+// latest answer is the last thing Codex printed, so its closing lines are
+// on screen, wrapped and with the Markdown rendered.
+
+const ANSWER_1: &str = "Reviewed the parser.\n\n1. **[P1] Escapes are dropped** in `lexer.rs:40`: a backslash before a quote ends the string early.\n2. The tests pass, and `cargo clippy` is clean.";
+const ANSWER_2: &str = "Updated the README.\n\nThe install section now uses `herdr plugin install`, and the configuration keys are listed one per line.";
+
+/// How the Codex TUI shows `answer`: wrapped at 40 columns, indented, and
+/// with the Markdown markers gone.
+fn rendered(answer: &str) -> String {
+    let plain = answer.replace("**", "").replace('`', "");
+    let mut out = String::from("› review it\n\n");
+    for line in plain.lines() {
+        let mut col = 0;
+        out.push_str("  ");
+        for word in line.split(' ') {
+            if col + word.len() > 40 {
+                out.push_str("\n     ");
+                col = 0;
+            }
+            out.push_str(word);
+            out.push(' ');
+            col += word.len() + 1;
+        }
+        out.push('\n');
+    }
+    out.push_str("\n  Worked for 1m 2s • 13:20\n\n› Ask Codex to do anything\n");
+    out
+}
+
+fn answers() -> Vec<(String, String)> {
+    vec![(T1.into(), ANSWER_1.into()), (T2.into(), ANSWER_2.into())]
+}
+
+#[test]
+fn the_screen_shows_which_thread_the_pane_runs() {
+    assert_eq!(
+        shown_on_screen(&rendered(ANSWER_1), &answers()).as_deref(),
+        Some(T1)
+    );
+    assert_eq!(
+        shown_on_screen(&rendered(ANSWER_2), &answers()).as_deref(),
+        Some(T2)
+    );
+}
+
+#[test]
+fn a_screen_showing_neither_answer_decides_nothing() {
+    assert_eq!(
+        shown_on_screen("› Ask Codex to do anything\n", &answers()),
+        None
+    );
+    assert_eq!(shown_on_screen("", &answers()), None);
+}
+
+#[test]
+fn a_screen_showing_both_answers_decides_nothing() {
+    // The other Codex's answer, handed to this one as a quote.
+    let screen = format!("{}{}", rendered(ANSWER_2), rendered(ANSWER_1));
+    assert_eq!(shown_on_screen(&screen, &answers()), None);
+}
+
+#[test]
+fn answers_alike_or_too_short_decide_nothing() {
+    let same = vec![(T1.into(), ANSWER_1.into()), (T2.into(), ANSWER_1.into())];
+    assert_eq!(shown_on_screen(&rendered(ANSWER_1), &same), None);
+    let short = vec![
+        (T1.into(), "Hello!".into()),
+        (T2.into(), "Hi there.".into()),
+    ];
+    assert_eq!(shown_on_screen("  Hello!\n", &short), None);
+}
+
+#[test]
+fn only_the_closing_lines_count() {
+    // The opening of an answer on screen (quoted in part, say) does not
+    // make it this pane's: its last line must be there.
+    let screen = "  Reviewed the parser.\n";
+    assert_eq!(shown_on_screen(screen, &answers()), None);
 }

@@ -33,6 +33,8 @@ struct FakeHerdr {
     agents: Rc<RefCell<Vec<Value>>>,
     prompts: RefCell<Vec<(String, String)>>,
     prompt_result: RefCell<Result<(), HandoffError>>,
+    /// What every pane's screen shows.
+    screen: RefCell<String>,
 }
 
 impl FakeHerdr {
@@ -44,6 +46,7 @@ impl FakeHerdr {
             ])),
             prompts: RefCell::new(Vec::new()),
             prompt_result: RefCell::new(Ok(())),
+            screen: RefCell::new(String::new()),
         }
     }
 
@@ -91,6 +94,9 @@ impl HerdrApi for FakeHerdr {
     fn layout(&self, _pane_id: &str) -> Result<Layout, HandoffError> {
         Err(HandoffError::Herdr("no layout".into()))
     }
+    fn screen_text(&self, _pane_id: &str) -> Result<String, HandoffError> {
+        Ok(self.screen.borrow().clone())
+    }
     fn foreground_processes(
         &self,
         pane_id: &str,
@@ -110,6 +116,8 @@ impl HerdrApi for FakeHerdr {
 /// An adapter whose "transcript" is whatever the test puts in `answer`.
 struct FakeAdapter {
     answer: RefCell<Result<(String, String), HandoffError>>,
+    /// Latest answers of particular sessions, over `answer`.
+    by_session: RefCell<Vec<(String, String)>>,
     /// The transcript `resolve` finds (a Codex rewind starts a new file).
     path: RefCell<PathBuf>,
     /// Older answers, newest first, below the latest one.
@@ -150,7 +158,16 @@ impl AnswerAdapter for FakeAdapter {
         session: &ResolvedSession,
         _: &ReadLimits,
     ) -> Result<AnswerSnapshot, HandoffError> {
-        let (id, text) = self.answer.borrow().clone()?;
+        let by_session = self
+            .by_session
+            .borrow()
+            .iter()
+            .find(|(s, _)| *s == session.native_id)
+            .map(|(_, text)| ("msg_s".to_string(), text.clone()));
+        let (id, text) = match by_session {
+            Some(answer) => answer,
+            None => self.answer.borrow().clone()?,
+        };
         self.read();
         Ok(snap(session, &id, &text))
     }
@@ -194,6 +211,7 @@ impl World {
                     "msg_1".into(),
                     "## 回答\n\n```rust\nfn main() {}\n```\n日本語".into(),
                 ))),
+                by_session: RefCell::new(Vec::new()),
                 path: RefCell::new(PathBuf::from("/fake.jsonl")),
                 older: RefCell::new(vec![("msg_0".into(), "an older answer".into())]),
                 on_read: RefCell::new(None),
@@ -701,4 +719,83 @@ fn a_codex_target_is_sent_to_without_knowing_its_thread() {
         SendOutcome::Accepted
     );
     assert_eq!(w.herdr.sent(), 1);
+}
+
+const OTHER_THREAD: &str = "01a118e9-1aa8-7491-bc3d-f5bfadbddeb7";
+
+/// Two threads named "Review" in the pane's directory.
+struct TwoThreadDaemon;
+
+impl agent_relay::codex_daemon::CodexDaemon for TwoThreadDaemon {
+    fn loaded_threads(
+        &self,
+    ) -> Result<Vec<agent_relay::codex_daemon::DaemonThread>, agent_relay::codex_daemon::DaemonError>
+    {
+        Ok([DST_SESSION, OTHER_THREAD]
+            .iter()
+            .map(|id| agent_relay::codex_daemon::DaemonThread {
+                id: id.to_string(),
+                name: Some("Review".into()),
+                cwd: Some("/home/user/app".into()),
+            })
+            .collect())
+    }
+}
+
+/// w1:pB as a Codex source on the daemon, sharing its thread name.
+fn shared_name_world() -> World {
+    let w = World::new();
+    w.herdr.set("w1:pB", |a| {
+        a.as_object_mut().unwrap().remove("agent_session");
+        a["terminal_title_stripped"] = json!("Review | app");
+        a["foreground_cwd"] = json!("/home/user/app");
+    });
+    *w.adapters.0.by_session.borrow_mut() = vec![
+        (
+            DST_SESSION.into(),
+            "The parser keeps escaped quotes now.".into(),
+        ),
+        (
+            OTHER_THREAD.into(),
+            "The README lists every configuration key.".into(),
+        ),
+    ];
+    w
+}
+
+#[test]
+fn a_codex_source_sharing_its_thread_name_is_told_by_its_screen() {
+    let w = shared_name_world();
+    *w.herdr.screen.borrow_mut() =
+        "› fix it\n\n  The parser keeps escaped\n  quotes now.\n\n› Ask Codex to do anything"
+            .into();
+    let daemon = TwoThreadDaemon;
+    let service = w.service().with_codex_daemon(&daemon);
+    let source = service.agent("w1:pB").unwrap().binding;
+    assert_eq!(source.session.value, DST_SESSION);
+    let answer = service.prepare(source).unwrap();
+    assert_eq!(answer.text, "The parser keeps escaped quotes now.");
+}
+
+#[test]
+fn a_codex_source_whose_screen_does_not_tell_is_refused() {
+    let w = shared_name_world();
+    *w.herdr.screen.borrow_mut() = "› Ask Codex to do anything".into();
+    let daemon = TwoThreadDaemon;
+    let service = w.service().with_codex_daemon(&daemon);
+    let err = service.agent("w1:pB").unwrap_err();
+    assert!(matches!(err, HandoffError::ThreadNameShared(_)), "{err:?}");
+}
+
+#[test]
+fn a_codex_source_is_refused_when_another_candidate_cannot_be_read() {
+    let w = shared_name_world();
+    *w.herdr.screen.borrow_mut() = "  The parser keeps escaped quotes now.".into();
+    // The other thread has no finished answer to compare with.
+    w.adapters.0.by_session.borrow_mut().pop();
+    *w.adapters.0.answer.borrow_mut() = Err(HandoffError::NoCompletedAnswer("none".into()));
+    let daemon = TwoThreadDaemon;
+    let service = w.service().with_codex_daemon(&daemon);
+    let err = service.agent("w1:pB").unwrap_err();
+    assert!(matches!(err, HandoffError::ThreadNameShared(_)), "{err:?}");
 }

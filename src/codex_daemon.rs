@@ -91,6 +91,18 @@ pub fn resolve_agent(
     daemon: Option<&dyn CodexDaemon>,
     pane_id: &str,
 ) -> Result<AgentSnapshot, HandoffError> {
+    resolve_agent_with(herdr, daemon, pane_id, &|_| None)
+}
+
+/// `resolve_agent`, where `tiebreak` may name which of the threads sharing
+/// the pane's title it shows (see `shown_on_screen`); None leaves it
+/// undecided.
+pub fn resolve_agent_with(
+    herdr: &dyn HerdrApi,
+    daemon: Option<&dyn CodexDaemon>,
+    pane_id: &str,
+    tiebreak: &dyn Fn(&[String]) -> Option<String>,
+) -> Result<AgentSnapshot, HandoffError> {
     let mut info = herdr.agent_info(pane_id)?;
     let server_key = herdr.server_key();
     let reported = AgentSnapshot::from_info(&info, &server_key);
@@ -151,7 +163,15 @@ pub fn resolve_agent(
         .or(str_field("cwd"))
         .unwrap_or_default()
         .to_string();
-    let thread = match_thread(&threads, &title, &cwd)?;
+    let thread = match match_thread(&threads, &title, &cwd) {
+        Err(HandoffError::ThreadNameShared(name)) => {
+            let ids = matching_threads(&threads, &title, &cwd)?;
+            tiebreak(&ids)
+                .filter(|id| ids.contains(id))
+                .ok_or(HandoffError::ThreadNameShared(name))?
+        }
+        found => found?,
+    };
     info["agent_session"] =
         json!({"source": "herdr:codex", "agent": "codex", "kind": "id", "value": thread});
     AgentSnapshot::from_info(&info, &server_key)
@@ -164,11 +184,16 @@ pub fn match_thread(
     title: &str,
     cwd: &str,
 ) -> Result<String, HandoffError> {
-    let unknown = || {
-        HandoffError::SessionUnavailable(
-            "cannot tell which Codex thread this pane shows; send it one prompt, or start Codex with `codex --no-daemon`".into(),
-        )
-    };
+    match matching_threads(threads, title, cwd)?.as_slice() {
+        [one] => Ok(one.clone()),
+        _ => Err(HandoffError::ThreadNameShared(title_name(title, cwd)?)),
+    }
+}
+
+/// The name in a Codex terminal title "<name> | <project>", where
+/// <project> is the last component of `cwd`.
+fn title_name(title: &str, cwd: &str) -> Result<String, HandoffError> {
+    let unknown = unknown_thread;
     let project = Path::new(cwd)
         .file_name()
         .and_then(|n| n.to_str())
@@ -179,16 +204,72 @@ pub fn match_thread(
         .map(str::trim)
         .filter(|n| !n.is_empty())
         .ok_or_else(unknown)?;
-    let found: Vec<&DaemonThread> = threads
+    Ok(name.to_string())
+}
+
+/// The threads named by a Codex terminal title whose working directory is
+/// `cwd`: at least one.
+fn matching_threads(
+    threads: &[DaemonThread],
+    title: &str,
+    cwd: &str,
+) -> Result<Vec<String>, HandoffError> {
+    let name = title_name(title, cwd)?;
+    let found: Vec<String> = threads
         .iter()
-        .filter(|t| t.name.as_deref().map(str::trim) == Some(name))
+        .filter(|t| t.name.as_deref().map(str::trim) == Some(name.as_str()))
         .filter(|t| t.cwd.as_deref().is_some_and(|c| same_dir(c, cwd)))
+        .map(|t| t.id.clone())
         .collect();
-    match found.as_slice() {
-        [one] => Ok(one.id.clone()),
-        [] => Err(unknown()),
-        _ => Err(HandoffError::ThreadNameShared(name.to_string())),
+    if found.is_empty() {
+        return Err(unknown_thread());
     }
+    Ok(found)
+}
+
+fn unknown_thread() -> HandoffError {
+    HandoffError::SessionUnavailable(
+        "cannot tell which Codex thread this pane shows; send it one prompt, or start Codex with `codex --no-daemon`".into(),
+    )
+}
+
+/// Lines shorter than this, in letters and digits, are too common to tell
+/// two answers apart ("Done.", "Hello! How can I help?").
+const DISTINCT_LETTERS: usize = 16;
+
+/// Which of `answers` (thread id, latest answer) the pane whose screen text
+/// is `screen` shows, if exactly one. An answer counts as shown when its
+/// last line of some length is on screen and occurs in no other answer:
+/// the latest answer is the last thing Codex prints, so its end stays in
+/// view. Text is compared by its letters and digits only, which survive
+/// the TUI's wrapping, indentation and Markdown rendering. A quote of
+/// another answer shown together with the pane's own makes two, and
+/// nothing is decided.
+pub fn shown_on_screen(screen: &str, answers: &[(String, String)]) -> Option<String> {
+    let screen = letters(screen);
+    let all: Vec<String> = answers.iter().map(|(_, text)| letters(text)).collect();
+    let mut shown = answers.iter().enumerate().filter_map(|(i, (id, text))| {
+        let last = text
+            .lines()
+            .rev()
+            .map(letters)
+            .find(|l| l.chars().count() >= DISTINCT_LETTERS)?;
+        let distinct = all
+            .iter()
+            .enumerate()
+            .all(|(j, other)| j == i || !other.contains(&last));
+        (distinct && screen.contains(&last)).then(|| id.clone())
+    });
+    let first = shown.next()?;
+    shown.next().is_none().then_some(first)
+}
+
+/// `s` reduced to its letters and digits, lowercased.
+fn letters(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 /// Whether `p` is Codex: its program, or the script its interpreter runs

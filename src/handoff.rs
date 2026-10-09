@@ -6,12 +6,13 @@
 //! whose result is unknown is reported as such and never retried.
 
 use crate::adapters::AdapterRegistry;
-use crate::codex_daemon::{CodexDaemon, resolve_agent, resolve_target};
+use crate::codex_daemon::{CodexDaemon, resolve_agent_with, resolve_target, shown_on_screen};
 use crate::config::Config;
 use crate::error::HandoffError;
 use crate::herdr::{AgentSnapshot, HerdrApi};
-use crate::model::{AnswerSnapshot, PaneBinding};
+use crate::model::{AgentKind, AnswerSnapshot, PaneBinding, SessionRef};
 use crate::prompt::build_prompt;
+use crate::session::occupant_binding;
 
 /// How many past answers are offered to choose from.
 pub const MAX_ANSWERS: usize = 50;
@@ -55,7 +56,34 @@ impl<'a> HandoffService<'a> {
 
     /// The agent in `pane_id` with its session binding.
     pub fn agent(&self, pane_id: &str) -> Result<AgentSnapshot, HandoffError> {
-        resolve_agent(self.herdr, self.daemon, pane_id)
+        resolve_agent_with(self.herdr, self.daemon, pane_id, &|ids| {
+            self.shown_thread(pane_id, ids)
+        })
+    }
+
+    /// Which of the Codex threads `ids`, sharing the title of `pane_id`,
+    /// the pane shows by its screen (see `shown_on_screen`). Every one
+    /// must have a finished answer to compare: a pane whose own latest
+    /// turn did not finish may show another thread's answer it was handed.
+    fn shown_thread(&self, pane_id: &str, ids: &[String]) -> Option<String> {
+        let adapter = self.adapters.adapter(AgentKind::Codex)?;
+        let info = self.herdr.agent_info(pane_id).ok()?;
+        let server_key = self.herdr.server_key();
+        let mut answers = Vec::new();
+        for id in ids {
+            let session = SessionRef {
+                kind: "id".into(),
+                value: id.clone(),
+            };
+            let binding = occupant_binding(&info, &server_key, AgentKind::Codex, session).ok()?;
+            let resolved = adapter.resolve(&binding, self.config).ok()?;
+            let answer = adapter
+                .latest_completed(&resolved, &self.config.limits)
+                .ok()?;
+            answers.push((id.clone(), answer.text));
+        }
+        let screen = self.herdr.screen_text(pane_id).ok()?;
+        shown_on_screen(&screen, &answers)
     }
 
     /// The agent in `pane_id` as a target (see `resolve_target`).

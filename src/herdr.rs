@@ -139,12 +139,19 @@ pub trait HerdrApi {
     fn workspace_labels(&self) -> Result<Vec<(String, String)>, HandoffError> {
         Ok(Vec::new())
     }
+    /// The recent text of the pane's terminal, without colors.
+    fn screen_text(&self, _pane_id: &str) -> Result<String, HandoffError> {
+        Err(HandoffError::Herdr("the pane's text cannot be read".into()))
+    }
 
     /// The agent in `pane_id` with its session binding.
     fn agent(&self, pane_id: &str) -> Result<AgentSnapshot, HandoffError> {
         AgentSnapshot::from_info(&self.agent_info(pane_id)?, &self.server_key())
     }
 }
+
+/// How much of a pane's terminal `screen_text` reads.
+const SCREEN_LINES: u32 = 200;
 
 pub struct HerdrClient {
     socket_path: String,
@@ -306,6 +313,19 @@ impl HerdrApi for HerdrClient {
             .map_err(CallError::into_herdr)?;
         serde_json::from_value(result["panes"].take())
             .map_err(|e| HandoffError::Herdr(format!("pane.list: {e}")))
+    }
+
+    fn screen_text(&self, pane_id: &str) -> Result<String, HandoffError> {
+        let result = self
+            .call(
+                "pane.read",
+                json!({"pane_id": pane_id, "source": "recent_unwrapped", "lines": SCREEN_LINES}),
+            )
+            .map_err(CallError::into_herdr)?;
+        result["read"]["text"]
+            .as_str()
+            .map(str::to_string)
+            .ok_or_else(|| HandoffError::Herdr("pane.read returned no text".into()))
     }
 
     fn foreground_processes(&self, pane_id: &str) -> Result<Vec<PaneProcess>, HandoffError> {
