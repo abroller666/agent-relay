@@ -8,6 +8,7 @@
 use crate::adapters::AdapterRegistry;
 use crate::codex_daemon::{CodexDaemon, resolve_agent_with, resolve_target, shown_on_screen};
 use crate::config::Config;
+use crate::devin_session::resolve_devin;
 use crate::error::HandoffError;
 use crate::herdr::{AgentSnapshot, HerdrApi};
 use crate::model::{AgentKind, AnswerSnapshot, PaneBinding, SessionRef};
@@ -56,6 +57,9 @@ impl<'a> HandoffService<'a> {
 
     /// The agent in `pane_id` with its session binding.
     pub fn agent(&self, pane_id: &str) -> Result<AgentSnapshot, HandoffError> {
+        if let Some(devin) = resolve_devin(self.herdr, self.config, pane_id)? {
+            return Ok(devin);
+        }
         resolve_agent_with(self.herdr, self.daemon, pane_id, &|ids| {
             self.shown_thread(pane_id, ids)
         })
@@ -86,9 +90,20 @@ impl<'a> HandoffService<'a> {
         shown_on_screen(&screen, &answers)
     }
 
-    /// The agent in `pane_id` as a target (see `resolve_target`).
+    /// The agent in `pane_id` as a target (see `resolve_target`). One that
+    /// Herdr reports ready must also be ready by its transcript, where its
+    /// adapter can tell (`AnswerAdapter::accepts_prompt`).
     pub fn target(&self, pane_id: &str) -> Result<AgentSnapshot, HandoffError> {
-        resolve_target(self.herdr, self.daemon, pane_id)
+        let target = match resolve_devin(self.herdr, self.config, pane_id)? {
+            Some(devin) => devin,
+            None => resolve_target(self.herdr, self.daemon, pane_id)?,
+        };
+        if target.is_ready()
+            && let Some(adapter) = self.adapters.adapter(target.binding.agent)
+        {
+            adapter.accepts_prompt(&target.binding, self.config)?;
+        }
+        Ok(target)
     }
 
     /// The last finished answer of `source`, which must still be the same

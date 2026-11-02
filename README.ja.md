@@ -6,7 +6,7 @@
 [English](README.md)
 
 [Herdr](https://herdr.dev) で、あるペイン（A）のAIが最後に完了した回答を、指示を添えて別のペイン（B）のAIへ送り、そのまま実行させるプラグインです。
-対応しているのは Claude Code と Codex です（A・Bのどちらにも使えます）。ポップアップの表示は英語です。
+対応しているのは Claude Code、Codex、Devin CLI です（A・Bのどちらにも使えます）。ポップアップの表示は英語です。
 
 ![agent-relay：Codexのレビュー結果をClaude Codeへ渡す](docs/demo.gif)
 
@@ -18,6 +18,7 @@ Codexのレビュー結果を、指示を添えてClaude Codeへ渡していま�
 |---|---|---|---|
 | Claude Code | ○ | ○ | 2.1.293（2.1.219 以前はターン完了の記録がないため使えません） |
 | Codex CLI | ○ | ○ | 0.160.1、0.161.0。既定の共有daemonでも `--no-daemon` でも使えます |
+| Devin CLI | ○ | ○ | 3000.11.234 |
 
 Herdrが認識するほかのエージェントには対応していません。送信先の一覧には理由つきで出ますが選べず、回答を読み取ることもありません。
 
@@ -58,7 +59,7 @@ Herdrが入力を受け付けると、ポップアップはすぐに閉じます
 
 ## 「最後の完了した回答」とは
 
-AIのセッション履歴（Claude Code は `~/.claude/projects`、Codex は `~/.codex/sessions`）を読み、最新のターンが正常に終わっている場合の最終回答だけを送ります。
+AIのセッション履歴（Claude Code は `~/.claude/projects`、Codex は `~/.codex/sessions`、Devin は `~/.local/share/devin/cli/sessions.db`）を読み、最新のターンが正常に終わっている場合の最終回答だけを送ります。
 途中経過、thinking、ツールの呼び出しと結果は含めません。範囲を手で選ぶ必要はなく、追加でAIを呼び出すこともしません。
 
 次のときは送らずに理由を表示します。古い回答を代わりに送ることはしません。
@@ -71,11 +72,13 @@ AIのセッション履歴（Claude Code は `~/.claude/projects`、Codex は `~
 ## 使える条件と制限
 
 - **A・Bとも、Herdr上で idle か done のとき**に使えます。working・blocked・unknown のペインには送りません。
-- **Herdr integration が必要です。** `herdr integration install claude` / `herdr integration install codex` を実行し、エージェントを起動し直してください。
+- **Claude Code・Codex は Herdr integration が必要です。** `herdr integration install claude` / `herdr integration install codex` を実行し、エージェントを起動し直してください。Devin には不要です（下記）。
   一覧で `no session yet` と出るときは、次を確認してください。
   - `herdr integration status` で integration が入っているか。
   - Codex は最初の発言をするまでセッションが登録されません。一度何か送ってから使ってください（Bとして使う場合も同じです）。
   - **既定の Codex（共有のバックグラウンドサーバー＝デーモン経由）にも対応しています。** この使い方では Codex の不具合（openai/codex#48500、herdrdev/herdr#4649）で Herdr にセッションが正しく登録されないため、そのペインの端末タイトル（Codex が書く「スレッド名 | プロジェクト」）と作業ディレクトリが、デーモン上のスレッドの1つだけと一致したときに、そのスレッドとして扱います。これが必要なのは、Codex のペインを A（送信元）にして回答を読むときだけです。B（送信先）にするときはペインあてに送り、選んだときと同じ Codex のプロセスが動いているかだけを確かめるので、スレッドに関係なく選べます。A にするときは、次の場合は送りません：最初の発言の前（スレッド名がまだない）、同じディレクトリに同名のスレッドが複数あり、ペインの画面からも見分けられない（Codex は最初の発言からスレッド名を付けるため、どちらも挨拶から始めると同名になります。同名のときは、画面に最新の回答の末尾が見えているスレッドが1つだけなら、それと判断します。見分けられなければ片方で `/rename` してください）、`tui.terminal_title` で端末タイトルの形式を変えている。そのときは `codex --no-daemon` で起動すれば、従来どおり Herdr の登録で動きます。デーモンとのやり取りに使う Codex の app-server の窓口は実験的な扱いのため、Codex の更新で使えなくなる可能性があります。
+- **Devin は、ペインで動いている Devin のプロセスが開いているセッションを使います。** Herdr の Devin integration は `/clear` や `/resume` で切り替えたセッションに付いていかないため、Herdr の登録は使いません（integration を入れていなくても使えます）。セッションが分からないときは送りません。
+- **ツールの実行の承認を待っている Devin には送りません。** Herdr（判定ルール 2026.06.15.1）は Devin 3000.11.234 の承認の画面を承認待ちと認識せず、idle と表示します。そのまま送ると、最後の Enter で実行を承認してしまうため、Devin の履歴で実行中・承認待ちと分かるときは、一覧に `Devin is working or waiting for approval` と出して選べないようにしています。
 - **Bの入力欄は空にしておいてください。** 入力欄に書きかけの文字があると、送ったプロンプトの前につながります。このプラグインは入力欄を勝手に消しません。
 - **Claude Code で rewind（`Esc` `Esc`）した直後は、次の発言をするまで巻き戻す前の回答が送られます（`Ctrl+o` の一覧にも出ます）。** rewind は履歴に何も残さないため、検出できません。ポップアップのプレビューで内容を確認してください。次の発言をした後は正しい回答を読みます。
 - Codex で rewind・fork した直後は、次の発言をするまで「No finished answer」になります。
@@ -93,9 +96,9 @@ AIのセッション履歴（Claude Code は `~/.claude/projects`、Codex は `~
 ## 必要なもの
 
 - Herdr 0.9.3 以降
-- Claude Code 2.1.293 / Codex CLI 0.160.1・0.161.0 で確認（[対応しているエージェントと言語](#対応しているエージェントと言語)を参照）
+- Claude Code 2.1.293 / Codex CLI 0.160.1・0.161.0 / Devin CLI 3000.11.234 で確認（[対応しているエージェントと言語](#対応しているエージェントと言語)を参照）
 - macOS（動作確認済み）。Linux は未確認です。
-- ビルド用に Rust 1.85 以降（`cargo`）
+- ビルド用に Rust 1.85 以降（`cargo`）と C コンパイラ（Devin の履歴を読む SQLite を一緒にビルドするため。macOS は Xcode Command Line Tools）
 
 ## インストール
 
@@ -128,13 +131,14 @@ description = "hand the last answer to another pane"
 
 ## 設定
 
-プラグインの設定ディレクトリ（`HERDR_PLUGIN_CONFIG_DIR`）に `config.json` を置くと、引用の前の一文の言語や、Claude Code・Codex の履歴の探索先（標準以外の場所にしている場合）を変えられます。
+プラグインの設定ディレクトリ（`HERDR_PLUGIN_CONFIG_DIR`）に `config.json` を置くと、引用の前の一文の言語や、Claude Code・Codex・Devin の履歴の探索先（標準以外の場所にしている場合）を変えられます。`devin_roots` は `sessions.db` と `session_locks` のあるディレクトリです。
 ポップアップの環境変数はAIの環境と同じとは限らないため、`CLAUDE_CONFIG_DIR` などは読みません。
 
 ```json
 {
   "claude_roots": ["~/.claude/projects"],
   "codex_roots": ["~/.codex/sessions"],
+  "devin_roots": ["~/.local/share/devin/cli"],
   "max_payload_bytes": 262144,
   "max_file_bytes": 268435456,
   "max_line_bytes": 8388608,

@@ -131,6 +131,33 @@ fn unofficial_or_mismatched_session_source_is_rejected() {
 }
 
 #[test]
+fn devin_sessions_bind_by_their_word_ids() {
+    let info = agent_info("devin", Some(session("devin", "cookie-grin")));
+    let binding = binding_from_agent(&info, "srv").unwrap();
+    assert_eq!(binding.agent, AgentKind::Devin);
+    assert_eq!(binding.session.value, "cookie-grin");
+    for bad in [
+        "../x",
+        "a/b",
+        "",
+        "-grin",
+        "cookie-",
+        "Cookie-Grin",
+        "a b",
+        &"a".repeat(65),
+    ] {
+        let info = agent_info("devin", Some(session("devin", bad)));
+        assert!(
+            binding_from_agent(&info, "srv").is_err(),
+            "accepted session id {bad:?}"
+        );
+    }
+    // Word ids are still refused for agents whose ids are hex.
+    let info = agent_info("claude", Some(session("claude", "cookie-grin")));
+    assert!(binding_from_agent(&info, "srv").is_err());
+}
+
+#[test]
 fn other_agents_are_unsupported() {
     let info = agent_info("gemini", Some(session("gemini", ID_A)));
     let err = binding_from_agent(&info, "srv").unwrap_err();

@@ -4,6 +4,7 @@
 //! ```json
 //! {"claude_roots": ["/home/me/.claude-work/projects"],
 //!  "codex_roots": ["/home/me/.codex/sessions"],
+//!  "devin_roots": ["/home/me/.local/share/devin/cli"],
 //!  "max_payload_bytes": 262144}
 //! ```
 
@@ -44,6 +45,8 @@ pub struct Config {
     pub claude_roots: Vec<PathBuf>,
     /// Directories holding `YYYY/MM/DD/rollout-*.jsonl`.
     pub codex_roots: Vec<PathBuf>,
+    /// Directories holding Devin CLI's `sessions.db`.
+    pub devin_roots: Vec<PathBuf>,
     pub limits: ReadLimits,
     /// The largest prompt (instruction plus answer) to send, in bytes.
     pub max_payload_bytes: usize,
@@ -65,6 +68,7 @@ impl Config {
         Self {
             claude_roots: vec![home.join(".claude/projects")],
             codex_roots: vec![home.join(".codex/sessions")],
+            devin_roots: vec![home.join(".local/share/devin/cli")],
             limits: ReadLimits::default(),
             max_payload_bytes: 256 * 1024,
             prompt_language: PromptLanguage::default(),
@@ -90,6 +94,9 @@ impl Config {
         if let Some(roots) = file.codex_roots {
             config.codex_roots = roots.iter().map(|r| expand_home(r, home)).collect();
         }
+        if let Some(roots) = file.devin_roots {
+            config.devin_roots = roots.iter().map(|r| expand_home(r, home)).collect();
+        }
         if let Some(n) = file.max_payload_bytes {
             config.max_payload_bytes = n;
         }
@@ -114,6 +121,7 @@ impl Config {
 struct ConfigFile {
     claude_roots: Option<Vec<String>>,
     codex_roots: Option<Vec<String>>,
+    devin_roots: Option<Vec<String>>,
     max_payload_bytes: Option<usize>,
     max_file_bytes: Option<u64>,
     max_line_bytes: Option<usize>,
@@ -145,6 +153,15 @@ mod tests {
     }
 
     #[test]
+    fn devin_root_defaults_to_its_data_directory() {
+        let config = Config::defaults(Path::new("/home/me"));
+        assert_eq!(
+            config.devin_roots,
+            [PathBuf::from("/home/me/.local/share/devin/cli")]
+        );
+    }
+
+    #[test]
     fn config_file_sets_the_prompt_language() {
         let dir = tempfile::tempdir().unwrap();
         let home = Path::new("/home/me");
@@ -168,7 +185,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("config.json"),
-            r#"{"claude_roots": ["~/alt/projects"], "max_payload_bytes": 1000}"#,
+            r#"{"claude_roots": ["~/alt/projects"], "devin_roots": ["/srv/devin"], "max_payload_bytes": 1000}"#,
         )
         .unwrap();
         let home = Path::new("/home/me");
@@ -181,6 +198,7 @@ mod tests {
             config.codex_roots,
             [PathBuf::from("/home/me/.codex/sessions")]
         );
+        assert_eq!(config.devin_roots, [PathBuf::from("/srv/devin")]);
         assert_eq!(config.max_payload_bytes, 1000);
     }
 

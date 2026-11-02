@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Reduce a Claude Code or Codex transcript to a fixture.
+"""Reduce a Claude Code or Codex transcript, or one Devin CLI session, to a
+fixture.
 
 Keeps the record structure the adapters read (types, ids, parent links,
 phases, completion events, ordinals, history_base) and drops everything
@@ -9,6 +10,11 @@ were driven with synthetic prompts. Paths given with --replace are
 rewritten in what is kept.
 
     sanitize.py claude|codex SRC DEST [--replace OLD=NEW ...]
+    sanitize.py devin SESSIONS_DB DEST --session ID [--replace OLD=NEW ...]
+
+A Devin fixture is JSONL: the `sessions` row first, then one line per
+`message_nodes` row, in node order. tests/devin_adapter.rs loads it into a
+database with Devin's schema.
 """
 
 import argparse
@@ -106,18 +112,79 @@ def codex_content(role, c):
     return {"type": c.get("type"), "text": text}
 
 
+DEVIN_INTERRUPTED = "[Response interrupted by user]"
+
+
+def devin_message(m):
+    role = m.get("role")
+    out = pick(m, "message_id", "role", "tool_call_id")
+    content = m.get("content")
+    if role in ("user", "assistant"):
+        out["content"] = content
+    elif role == "system" and isinstance(content, str) and content.startswith(DEVIN_INTERRUPTED):
+        out["content"] = content
+    else:
+        # System prompts, skill listings, summaries and tool output carry
+        # instructions, paths and file contents.
+        out["content"] = REDACTED
+    if "tool_calls" in m:
+        out["tool_calls"] = [pick(c, "id", "name") for c in m.get("tool_calls") or []]
+    md = m.get("metadata")
+    if isinstance(md, dict):
+        kept = pick(md, "is_user_input", "finish_reason", "created_at")
+        failure = (md.get("extensions") or {}).get("chisel/tool_failure")
+        if failure is not None:
+            kept["extensions"] = {"chisel/tool_failure": failure}
+        out["metadata"] = kept
+    return out
+
+
+def devin_rows(db, session):
+    import sqlite3
+    conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    row = conn.execute(
+        "SELECT id, main_chain_id FROM sessions WHERE id = ?", (session,)
+    ).fetchone()
+    if row is None:
+        raise SystemExit(f"no session {session}")
+    yield {"session": {"id": row[0], "main_chain_id": row[1]}}
+    for node_id, parent, message, meta in conn.execute(
+        "SELECT node_id, parent_node_id, chat_message, metadata FROM message_nodes"
+        " WHERE session_id = ? ORDER BY node_id",
+        (session,),
+    ):
+        meta = json.loads(meta) if meta else None
+        yield {
+            "node_id": node_id,
+            "parent_node_id": parent,
+            "chat_message": devin_message(json.loads(message)),
+            "metadata": pick(meta, "summarized_from") if isinstance(meta, dict) else meta,
+        }
+
+
 def pick(d, *keys):
     return {k: d[k] for k in keys if k in d}
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("kind", choices=("claude", "codex"))
+    ap.add_argument("kind", choices=("claude", "codex", "devin"))
     ap.add_argument("src")
     ap.add_argument("dest")
     ap.add_argument("--replace", action="append", default=[])
+    ap.add_argument("--session", help="the Devin session to extract")
     args = ap.parse_args()
     pairs = [r.split("=", 1) for r in args.replace]
+    if args.kind == "devin":
+        if not args.session:
+            ap.error("devin needs --session")
+        with open(args.dest, "w", encoding="utf-8") as dest:
+            for row in devin_rows(args.src, args.session):
+                text = json.dumps(row, ensure_ascii=False)
+                for old, new in pairs:
+                    text = text.replace(old, new)
+                dest.write(text + "\n")
+        return
     convert = claude_record if args.kind == "claude" else codex_record
     with open(args.src, encoding="utf-8") as src, open(args.dest, "w", encoding="utf-8") as dest:
         for line in src:

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 pub enum AgentKind {
     Claude,
     Codex,
+    Devin,
 }
 
 impl AgentKind {
@@ -17,6 +18,7 @@ impl AgentKind {
         match name {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
+            "devin" => Some(Self::Devin),
             _ => None,
         }
     }
@@ -25,6 +27,7 @@ impl AgentKind {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
+            Self::Devin => "devin",
         }
     }
 
@@ -32,6 +35,7 @@ impl AgentKind {
         match self {
             Self::Claude => "Claude Code",
             Self::Codex => "Codex",
+            Self::Devin => "Devin",
         }
     }
 }

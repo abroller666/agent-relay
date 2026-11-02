@@ -134,3 +134,62 @@ Codex 0.161.0 の TUI は、既定で共有のバックグラウンド app-serve
 既定（デーモン経由）の Codex のペインは、ペインの端末タイトル「スレッド名 | プロジェクト」と作業ディレクトリが、デーモン（`$CODEX_HOME/app-server-control/app-server-control.sock`、Unix ソケット上の WebSocket JSON-RPC）の `thread/loaded/list` → `thread/read` の `name`・`cwd` と1件だけ一致したとき、そのスレッドIDで扱う（`src/codex_daemon.rs`）。Herdr の登録をそのまま使うのは、ペインの前面の Codex プロセス（`pane.process_info` の `pid`）が、登録されたスレッドの rollout ファイルを開いているときだけ（`--no-daemon` の Codex は自分で rollout を書き、開いたままにしている：実測。デーモン経由のスレッドはデーモンが開く）。起動引数の `--no-daemon` や「デーモンが動いていない」ことは、登録の出所の根拠にしない：デーモンを起動したペインが後で `--no-daemon` で動いていても、デーモンはそのペインの環境で他のペインのセッションを報告しうるため（Herdr 0.9.3 はこの上書きを受け付ける）。`--no-daemon` のペインで証拠がなければ送らない（タイトル照合もしない）。それ以外はタイトル照合で決め、照合できない・デーモンが動いていない・問い合わせに失敗したときは送らない。開いているファイルは Linux では `/proc/<pid>/fd`、それ以外では `lsof` で調べる。
 
 実機確認：同じディレクトリでデーモン経由の Codex 2つと Claude 1つを動かし、Codex 2つが別スレッドとして特定され、Codex→Claude・Claude→Codex の送信がともに処理された。同名スレッドの曖昧さ、名前が付く前、デーモンが動いていない／問い合わせに失敗した場合、`--no-daemon` の判定は自動テストで確認。Rust 1.85.0 でもビルド・全テスト成功。
+
+## Devin CLI 3000.11.234（2026-11-02 追記）
+
+検証日：2026-11-02（日本時間）、macOS（Darwin 27.2.0）、Herdr 0.9.5（Devin の判定ルール 2026.06.15.1、integration v3）。専用のHerdrワークスペース（空のテスト用ディレクトリ）で Devin を2つ、Claude（haiku）を1つ動かし、合成した指示文だけを送った。既存のセッションは読み取りのみ。
+
+### 保存先と形式
+
+`~/.local/share/devin/cli/` に2種類ある。
+
+- `sessions.db`（SQLite、WAL）：全セッション分。`sessions(id, working_directory, main_chain_id, title, …)` と `message_nodes(session_id, node_id, parent_node_id, chat_message, metadata)`。`chat_message` はJSON（`message_id`、`role`、`content`、`tool_calls`、`metadata.finish_reason`・`is_user_input`・`created_at` など）。**会話は木構造で、`sessions.main_chain_id` が今の会話の末尾のnodeを指す。**
+- `transcripts/<id>.json`（ATIF-v1.7）：セッションごとの1ファイル。ターンの終わり（または中断時）にまとめて書き直される。
+
+**ATIFは使わない。** `/revert` してもATIFは書き直されず、巻き戻す前の回答が末尾に残る。また、ツールの承認待ちの間（下記のとおりHerdrは `done` と報告する）、ATIFはまだ前のターンのままで、1つ前の回答を最新の完了した回答として返してしまう。DBは、発言・ツール呼び出し・結果を、それぞれ書き終えた時点で1件ずつ書く（ストリーミング途中の本文は書かない）。
+
+### 各操作の記録（DB）
+
+- 正常終了：assistantのnodeに `finish_reason: "stop"`、`tool_calls: []`。ツールを呼ぶnodeは `finish_reason: "tool_calls"`。同じメッセージ（同じ `message_id`）のnodeが2つ書かれることがあるが、親をたどれば片方しか通らない。
+- 発言：userのnodeに `is_user_input: true`。実行中に続けて送った発言は、userのnodeが続き、まとめて1つの回答が付く。
+- 中断（Escを2回）：生成中なら、途中までの本文のassistantのnode（`finish_reason` なし）の後に、systemのnode `[Response interrupted by user]`。ツール実行中・承認待ちなら、toolのnodeが `Canceled due to user interrupt`、`metadata.extensions."chisel/tool_failure".reason: "Canceled"`。
+- `/revert <step>`：**その場で `main_chain_id` が巻き戻し先に移る**（会話全体を新しいnode_idで書き直すことがある。`message_id` は変わらない）。
+- `/compact`：要約用のやり取りは別の木に書かれる。今の会話の末尾は「前の会話の要約」のsystemのnodeで、その `metadata.summarized_from` が圧縮前の最後のnode（直前の回答）を指す。
+- `/btw`：nodeは書かれるが、`main_chain_id` は動かない。
+- `/fork`：会話をコピーした別のセッションを作る（`(fork)` の付いたタイトル）。今のペインは元のセッションのまま。
+- `/clear`・`/resume <id>`：同じペインで別のセッションに切り替わる（`/clear` の新しいセッションは、次の発言で作られる）。
+- `/help`・`/steps` などの表示だけのコマンドは記録されない。
+
+### Herdr
+
+- Herdr は `devin` を認識する。idle/working/blocked は画面のルールで判定する。integration（`herdr integration install devin`）は Devin の hook でセッションIDを報告する（例：`cookie-grin`。英小文字とハイフン）。最初の発言の前に登録される。
+- **integration は `/clear` と `/resume` に付いていかない。** 切り替えた後も、起動したときのセッションIDを報告し続けた。そのまま使うと、切り替える前のセッションの回答を読んでしまう。
+- **Devin 3000.11.234 のツール承認の画面（`↵ confirm · esc cancel`）を、判定ルール 2026.06.15.1 は承認待ちと認識しない。** `herdr agent explain` は `state: idle`、`rule: none`、`fallback_reason: default_known_agent_idle_fallback`。承認待ちの Devin へプロンプトを送ると、最後の Enter で実行を承認してしまう。
+
+### セッションの特定（実装）
+
+`devin`（TUI）は、セッションごとに子プロセス `devin acp` を動かす。この子プロセスが `session_locks/<id>.lock` に自分のpidを書いて開いたままにし、`/clear`・`/resume` では子プロセスが入れ替わる。したがって、**ペインの前面のDevinプロセス（`pane.process_info`）のpidが書かれたlockのセッションを、そのペインのセッションとする**（`src/devin_session.rs`）。Herdrの報告は使わない（integration がなくても動く）。lockが0件・2件以上のときは送らない。実機で、`/clear` の後・`/resume` の後とも正しいセッションに結び付いた。
+
+### 抽出規則（実装）
+
+1. `devin_roots` の `sessions.db` のうち、そのセッションの行を持つものがちょうど1つであること。読み取り専用で開き、1つの読み取りトランザクションの中で読む。
+2. `main_chain_id` から親をたどる。nodeに `metadata.summarized_from` があれば、そちらへ飛ぶ。`[Response interrupted by user]` 以外のsystemは読み飛ばす。
+3. 最初に見つかったnodeが `finish_reason: "stop"` でツール呼び出しのないassistantなら、その `content` を最新の回答とする。中断の印（上記のsystem、`Canceled` のtool）なら `NoCompletedAnswer`。`stop` 以外で終わったassistant（`length` など）も `NoCompletedAnswer`。それ以外（user、ツール呼び出し、ツールの結果）は実行中として `CompletionUncertain`。
+4. 回答一覧：今の会話の、次のnode（systemを除く）が発言であるか、会話の末尾であるassistantの `stop` の回答を、新しい順に。
+5. 回答の識別（fingerprint）には、node_idでなく `message_id` を使う（`/revert` 後の書き直しでnode_idが変わるため）。
+6. **送信先のガード**：Herdrが idle/done と報告していても、今の会話の末尾が発言・ツール呼び出し・ツールの結果なら（実行中か承認待ち）、`AgentNotReady`（一覧では `Devin is working or waiting for approval`）として送らない。
+
+### 実機受け入れ
+
+| ケース | 結果 |
+|---|---|
+| Devin → Claude（`/clear` 後のDevin） | `/clear` の後の回答（`SEVEN`）を1回だけ送り、Claudeが処理。Herdrは `/clear` 前のIDのまま |
+| Claude → Devin | 1回だけ届き、完全一致、処理された |
+| Devin → Devin（2行・日本語） | 1回だけ届き、完全一致、処理された |
+| Devin へ 64KiB（1209行） | 1回の送信として届き、行数を正確に回答。保存された長さも一致 |
+| 承認待ちの Devin（Herdrは `done`） | 一覧で選べず、送信直前の確認でも拒否。取り消した後は選べる |
+| ペイン内の `/resume` | 新しいセッションに結び付く |
+
+自動テスト：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test`（196件）、`sh scripts/build.sh` がすべて成功。Devinのフィクスチャは `tests/fixtures/raw/devin/`（`sanitize.py devin` でDBから1セッションずつ縮約）。
+
+未確認：Linux（`~/.local/share/devin/cli` 以外に置かれる場合は `devin_roots` で指定）、`devin -p`（非対話モード）、`/goal` などで自動的に続くターン、Devinの更新でのDBの形式の変化。
