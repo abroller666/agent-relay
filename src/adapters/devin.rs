@@ -70,14 +70,21 @@ impl AnswerAdapter for DevinAdapter {
     }
 
     fn accepts_prompt(&self, binding: &PaneBinding, config: &Config) -> Result<(), HandoffError> {
-        let session = match self.resolve(binding, config) {
-            Ok(session) => session,
-            // Devin writes a session at its first prompt: nothing can be
-            // pending before that.
-            Err(HandoffError::TranscriptUnavailable(_)) => return Ok(()),
-            Err(e) => return Err(e),
-        };
-        let mut db = Db::open(&session.transcript_path, &session.native_id)?;
+        if binding.agent != AgentKind::Devin {
+            return Err(HandoffError::UnsupportedAgent(
+                binding.agent.display_name().into(),
+            ));
+        }
+        let id = &binding.session.value;
+        let found = devin_databases_with(&config.devin_roots, id)?;
+        // Devin writes a session at its first prompt: nothing can be
+        // pending before that. Only a search that read every database and
+        // found it nowhere says so; a read error is passed on.
+        if found.is_empty() {
+            return Ok(());
+        }
+        let path = unique(found, id)?;
+        let mut db = Db::open(&path, id)?;
         let Some(end) = db.last_message()? else {
             return Ok(());
         };
@@ -98,6 +105,11 @@ impl AnswerAdapter for DevinAdapter {
 
 /// The `sessions.db` of `roots` that holds session `id`; exactly one must.
 pub fn find_devin_database(roots: &[PathBuf], id: &str) -> Result<PathBuf, HandoffError> {
+    unique(devin_databases_with(roots, id)?, id)
+}
+
+/// Every `sessions.db` of `roots` that holds session `id`.
+fn devin_databases_with(roots: &[PathBuf], id: &str) -> Result<Vec<PathBuf>, HandoffError> {
     validate_devin_session_id(id)?;
     let mut found = Vec::new();
     for root in roots {
@@ -114,7 +126,7 @@ pub fn find_devin_database(roots: &[PathBuf], id: &str) -> Result<PathBuf, Hando
             found.push(path);
         }
     }
-    unique(found, id)
+    Ok(found)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

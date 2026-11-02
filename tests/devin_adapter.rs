@@ -296,6 +296,20 @@ fn a_finished_session_takes_prompts() {
 }
 
 #[test]
+fn an_unreadable_database_is_not_a_fresh_session() {
+    // A session pending approval may be in a database that cannot be read:
+    // sending would approve it with its Enter.
+    let s = Setup::at(SLEEP_CALL);
+    fs::write(
+        &s.path,
+        b"this is not an SQLite database at all, just junk text",
+    )
+    .unwrap();
+    assert!(s.accepts(MAIN).is_err());
+    assert!(s.accepts("fresh-session").is_err());
+}
+
+#[test]
 fn sessions_of_one_database_stay_apart() {
     let s = Setup::new();
     assert_eq!(s.latest_of(CLEARED).unwrap().text, "ANSWER-FIVE");

@@ -98,10 +98,10 @@ impl<'a> HandoffService<'a> {
             Some(devin) => devin,
             None => resolve_target(self.herdr, self.daemon, pane_id)?,
         };
-        if target.is_ready()
-            && let Some(adapter) = self.adapters.adapter(target.binding.agent)
-        {
-            adapter.accepts_prompt(&target.binding, self.config)?;
+        if target.is_ready() {
+            if let Some(adapter) = self.adapters.adapter(target.binding.agent) {
+                adapter.accepts_prompt(&target.binding, self.config)?;
+            }
         }
         Ok(target)
     }
