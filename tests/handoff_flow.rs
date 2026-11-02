@@ -124,6 +124,9 @@ struct FakeAdapter {
     older: RefCell<Vec<(String, String)>>,
     /// Runs after each read, as if Herdr changed while it was read.
     on_read: RefCell<Option<Box<dyn Fn()>>>,
+    /// Whether the transcript shows the agent busy although Herdr reports
+    /// it idle (a Devin approval prompt).
+    busy: RefCell<bool>,
 }
 
 impl FakeAdapter {
@@ -186,6 +189,12 @@ impl AnswerAdapter for FakeAdapter {
             .take(max)
             .collect())
     }
+    fn accepts_prompt(&self, _: &PaneBinding, _: &Config) -> Result<(), HandoffError> {
+        if *self.busy.borrow() {
+            return Err(HandoffError::AgentNotReady("waiting for approval".into()));
+        }
+        Ok(())
+    }
 }
 
 struct FakeAdapters(FakeAdapter);
@@ -215,6 +224,7 @@ impl World {
                 path: RefCell::new(PathBuf::from("/fake.jsonl")),
                 older: RefCell::new(vec![("msg_0".into(), "an older answer".into())]),
                 on_read: RefCell::new(None),
+                busy: RefCell::new(false),
             }),
             config: Config::defaults(std::path::Path::new("/home/user")),
         }
@@ -373,6 +383,75 @@ fn working_or_blocked_rejected() {
         );
         assert_eq!(w.herdr.sent(), 0);
     }
+}
+
+/// A Devin pane `w1:pD` whose process (the fake's pid 7) holds the lock
+/// of session `held`; Herdr still reports `reported`.
+fn with_devin(w: &mut World, reported: &str, held: &str) -> tempfile::TempDir {
+    let root = tempfile::tempdir().unwrap();
+    let locks = root.path().join("session_locks");
+    std::fs::create_dir_all(&locks).unwrap();
+    std::fs::write(locks.join(format!("{held}.lock")), "7\n").unwrap();
+    std::fs::write(locks.join("exited-session.lock"), "70520\n").unwrap();
+    w.config.devin_roots = vec![root.path().to_path_buf()];
+    w.herdr
+        .agents
+        .borrow_mut()
+        .push(info("w1:pD", "devin", reported, "done"));
+    root
+}
+
+#[test]
+fn a_devin_pane_is_bound_to_the_session_its_process_holds() {
+    // After /clear, Herdr still reports the session Devin started with.
+    let mut w = World::new();
+    let _root = with_devin(&mut w, "exited-session", "harmless-hourglass");
+    let source = w.service().agent("w1:pD").unwrap();
+    assert_eq!(source.binding.session.value, "harmless-hourglass");
+    let target = w.service().target("w1:pD").unwrap();
+    assert_eq!(target.binding.session.value, "harmless-hourglass");
+
+    // Another /clear between choosing the target and sending.
+    let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
+    let dir = w.config.devin_roots[0].join("session_locks");
+    std::fs::rename(
+        dir.join("harmless-hourglass.lock"),
+        dir.join("next-session.lock"),
+    )
+    .unwrap();
+    let err = w
+        .service()
+        .send(&answer, &target.binding, "go")
+        .unwrap_err();
+    assert!(matches!(err, HandoffError::TargetChanged(_)), "{err:?}");
+
+    // No lock names the pane's process: nothing is guessed.
+    std::fs::remove_file(dir.join("next-session.lock")).unwrap();
+    let err = w.service().agent("w1:pD").unwrap_err();
+    assert!(
+        matches!(err, HandoffError::SessionUnavailable(_)),
+        "{err:?}"
+    );
+    assert_eq!(w.herdr.sent(), 0);
+}
+
+#[test]
+fn a_target_busy_by_its_transcript_is_refused() {
+    // Herdr reports a Devin pane at an approval prompt as done.
+    let mut w = World::new();
+    let _root = with_devin(&mut w, "cookie-grin", "cookie-grin");
+    let answer = w.service().prepare(w.herdr.binding("w1:pA")).unwrap();
+    let target = w.target("w1:pD");
+    *w.adapters.0.busy.borrow_mut() = true;
+    let err = w.service().target("w1:pD").unwrap_err();
+    assert!(matches!(err, HandoffError::AgentNotReady(_)), "{err:?}");
+    let err = w.service().send(&answer, &target, "go").unwrap_err();
+    assert!(matches!(err, HandoffError::AgentNotReady(_)), "{err:?}");
+    assert_eq!(w.herdr.sent(), 0);
+    // The transcript is only consulted for a target Herdr reports ready.
+    w.herdr
+        .set("w1:pD", |a| a["agent_status"] = json!("working"));
+    assert!(w.service().target("w1:pD").is_ok());
 }
 
 #[test]

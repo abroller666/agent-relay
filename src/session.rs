@@ -23,6 +23,32 @@ pub fn validate_session_id(id: &str) -> Result<(), HandoffError> {
     }
 }
 
+/// A Devin CLI session id: lowercase words joined by dashes, such as
+/// `cookie-grin`. It is only ever a query parameter, never part of a path.
+pub fn validate_devin_session_id(id: &str) -> Result<(), HandoffError> {
+    let ok = (1..=64).contains(&id.len())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && !id.starts_with('-')
+        && !id.ends_with('-');
+    if ok {
+        Ok(())
+    } else {
+        Err(HandoffError::SessionUnavailable(
+            "unexpected session id format".into(),
+        ))
+    }
+}
+
+/// The session id check for `agent`'s ids.
+fn validate_agent_session_id(agent: AgentKind, id: &str) -> Result<(), HandoffError> {
+    match agent {
+        AgentKind::Claude | AgentKind::Codex => validate_session_id(id),
+        AgentKind::Devin => validate_devin_session_id(id),
+    }
+}
+
 /// The binding for an `AgentInfo` object from `agent.get` / `agent.list`.
 pub fn binding_from_agent(info: &Value, server_key: &str) -> Result<PaneBinding, HandoffError> {
     let str_field = |key: &str| info.get(key).and_then(Value::as_str);
@@ -53,7 +79,7 @@ pub fn binding_from_agent(info: &Value, server_key: &str) -> Result<PaneBinding,
             s("kind")
         )));
     }
-    validate_session_id(s("value"))?;
+    validate_agent_session_id(agent, s("value"))?;
     occupant_binding(
         info,
         server_key,

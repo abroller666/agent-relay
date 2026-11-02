@@ -6,7 +6,7 @@
 [日本語](README.ja.md)
 
 A [Herdr](https://herdr.dev) plugin that takes the last finished answer of the AI in one pane (A), adds your instruction, and submits both to the AI in another pane (B).
-Supported agents: Claude Code and Codex, on either side.
+Supported agents: Claude Code, Codex and Devin CLI, on either side.
 
 ![agent-relay: a Codex review handed to Claude Code](docs/demo.gif)
 
@@ -18,6 +18,7 @@ A Codex pane's review is handed to Claude Code with one instruction: pick the ta
 |---|---|---|---|
 | Claude Code | yes | yes | 2.1.293 (2.1.219 and older: no, they do not record turn completion) |
 | Codex CLI | yes | yes | 0.160.1, 0.161.0; both the default shared daemon and `--no-daemon` |
+| Devin CLI | yes | yes | 3000.11.234 |
 
 Other agents Herdr detects are not supported: they are listed as targets with the reason and cannot be picked, and an answer is never read from them.
 
@@ -44,15 +45,17 @@ The popup closes as soon as Herdr accepts the input; that says nothing about B f
 
 ## What "the last finished answer" means
 
-The answer comes from the agent's own transcript (`~/.claude/projects`, `~/.codex/sessions`): the final answer of the latest turn, and only if that turn ended normally. Progress messages, thinking, tool calls and tool results are left out. There is no manual selection and no extra AI call.
+The answer comes from the agent's own transcript (`~/.claude/projects`, `~/.codex/sessions`, `~/.local/share/devin/cli/sessions.db`): the final answer of the latest turn, and only if that turn ended normally. Progress messages, thinking, tool calls and tool results are left out. There is no manual selection and no extra AI call.
 
 Nothing is sent, and the reason is shown, when the latest turn is still running, was interrupted, failed or is empty; when the transcript is still being written (waits up to 3 s); when Herdr has no session for the pane, or the transcript is missing or ambiguous; or when the transcript has a shape that was not verified. An older answer is never sent instead.
 
 ## Requirements and limits
 
 - A and B must be idle or done in Herdr.
-- The Herdr integration must be installed (`herdr integration install claude` / `codex`, then restart the agent). Codex registers its session only after its first prompt, so send it something once before using it (as A or B).
+- Claude Code and Codex need the Herdr integration (`herdr integration install claude` / `codex`, then restart the agent); Devin does not (see below). Codex registers its session only after its first prompt, so send it something once before using it (as A or B).
 - **Codex on its shared background daemon (the default) is supported.** There Herdr cannot register Codex sessions reliably (openai/codex#48500, herdrdev/herdr#4649), so a Codex pane is bound to the one daemon thread whose name and working directory match the pane's own terminal title ("<thread name> | <project>"). This is only needed to read a Codex pane as A: as B, a Codex pane is reached by its pane and checked to still run the same Codex process, so it can be picked whatever its thread. As A, nothing is sent before the first prompt (no thread name yet), when two threads in the directory share the name (Codex names a thread after its first prompt, so two chats both opened with "hello" can) and the pane's screen does not tell which (the end of exactly one of their latest answers must be in view; run `/rename` in one of them otherwise), or with a custom `tui.terminal_title`; `codex --no-daemon` then works through Herdr as before. The daemon interface Codex offers is experimental and may change.
+- **A Devin pane is bound to the session its Devin process holds open**, not to Herdr's report: Herdr's Devin integration does not follow `/clear` or `/resume`. It works without the integration. When the session cannot be told, nothing is sent.
+- **A Devin waiting to approve a tool call is never sent to.** Herdr (detection rules 2026.06.15.1) shows Devin 3000.11.234's approval prompt as idle, and the final Enter would approve the call. When Devin's history shows it working or waiting for approval, its row reads `Devin is working or waiting for approval` and cannot be picked.
 - Keep B's input box empty: text left there is joined in front of the prompt. The plugin does not clear it.
 - **Right after a Claude Code rewind (`Esc` `Esc`), until the next prompt, the answer from before the rewind is sent.** A rewind leaves no trace in the transcript. Check the preview.
 - Right after a Codex rewind or fork, there is no answer until the next prompt.
@@ -68,9 +71,9 @@ Details: [docs/compatibility.md](docs/compatibility.md).
 ## Requirements
 
 - Herdr 0.9.3 or later
-- Claude Code 2.1.293 / Codex CLI 0.160.1 or 0.161.0 verified (see [Supported agents and languages](#supported-agents-and-languages))
+- Claude Code 2.1.293 / Codex CLI 0.160.1 or 0.161.0 / Devin CLI 3000.11.234 verified (see [Supported agents and languages](#supported-agents-and-languages))
 - macOS (verified); Linux not verified
-- Rust 1.85 or later to build
+- Rust 1.85 or later and a C compiler to build (SQLite, for Devin's history, is built in; on macOS the Xcode Command Line Tools)
 
 ## Install
 
@@ -108,6 +111,7 @@ Put a `config.json` in the plugin's config directory (`HERDR_PLUGIN_CONFIG_DIR`)
   "prompt_language": "en",
   "claude_roots": ["~/.claude/projects"],
   "codex_roots": ["~/.codex/sessions"],
+  "devin_roots": ["~/.local/share/devin/cli"],
   "max_payload_bytes": 262144,
   "max_file_bytes": 268435456,
   "max_line_bytes": 8388608,
@@ -116,7 +120,7 @@ Put a `config.json` in the plugin's config directory (`HERDR_PLUGIN_CONFIG_DIR`)
 ```
 
 - `prompt_language`: the language of the line introducing the quote, `"en"` (the default) or `"ja"`. It only changes the prompt sent to B; the popup stays in English.
-- `claude_roots`, `codex_roots`: where agent-relay looks for the transcripts. Claude Code and Codex decide where they write them; agent-relay only reads them and does not change that. The defaults are the standard locations. Set these only if you moved them (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`); the popup does not read those variables, since its environment may differ from the agents'.
+- `claude_roots`, `codex_roots`, `devin_roots`: where agent-relay looks for the transcripts (for Devin, the directory holding `sessions.db` and `session_locks`). The agents decide where they write them; agent-relay only reads them and does not change that. The defaults are the standard locations. Set these only if you moved them (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`); the popup does not read those variables, since its environment may differ from the agents'.
 - `max_payload_bytes`: the largest prompt to send. `max_file_bytes`, `max_line_bytes`, `max_candidates`: read limits for transcripts.
 
 ## Data

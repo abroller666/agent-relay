@@ -6,6 +6,7 @@
 
 pub mod claude;
 pub mod codex;
+pub mod devin;
 
 use std::time::Duration;
 
@@ -41,6 +42,14 @@ pub trait AnswerAdapter {
         limits: &ReadLimits,
         max: usize,
     ) -> Result<Vec<AnswerSnapshot>, HandoffError>;
+
+    /// Refuses, as `AgentNotReady`, a target whose transcript shows it is
+    /// not waiting for a prompt although Herdr reports it idle (such as an
+    /// approval prompt Herdr does not recognize). Most agents leave this
+    /// to Herdr's state.
+    fn accepts_prompt(&self, _binding: &PaneBinding, _config: &Config) -> Result<(), HandoffError> {
+        Ok(())
+    }
 }
 
 /// Which adapter reads which agent. Tests substitute their own.
@@ -56,6 +65,7 @@ impl AdapterRegistry for DefaultAdapters {
         match agent {
             AgentKind::Claude => Some(&claude::ClaudeAdapter),
             AgentKind::Codex => Some(&codex::CodexAdapter),
+            AgentKind::Devin => Some(&devin::DevinAdapter),
         }
     }
 }

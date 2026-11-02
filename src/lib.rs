@@ -8,6 +8,7 @@
 pub mod adapters;
 pub mod codex_daemon;
 pub mod config;
+pub mod devin_session;
 pub mod error;
 pub mod handoff;
 pub mod herdr;

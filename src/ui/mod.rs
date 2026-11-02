@@ -1029,6 +1029,7 @@ pub fn unavailable_reason(e: &HandoffError) -> String {
     match e {
         HandoffError::SessionUnavailable(_) => "session unknown (send it one prompt first)".into(),
         HandoffError::ThreadNameShared(_) => "same name as another Codex: /rename one".into(),
+        HandoffError::AgentNotReady(detail) => detail.clone(),
         e => e.to_string(),
     }
 }
